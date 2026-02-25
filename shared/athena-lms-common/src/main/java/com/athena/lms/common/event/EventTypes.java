@@ -50,4 +50,25 @@ public final class EventTypes {
     public static final String AML_SAR_FILED       = "aml.sar.filed";
     public static final String CUSTOMER_KYC_PASSED = "customer.kyc.passed";
     public static final String CUSTOMER_KYC_FAILED = "customer.kyc.failed";
+
+    // ─── Mobile wallet events ─────────────────────────────────────────────────
+    public static final String MOBILE_USER_REGISTERED     = "mobile.user.registered";
+    public static final String MOBILE_TRANSFER_COMPLETED  = "mobile.transfer.completed";
+    public static final String MOBILE_TRANSFER_FAILED     = "mobile.transfer.failed";
+
+    // ─── Bill pay events ──────────────────────────────────────────────────────
+    public static final String BILL_PAYMENT_COMPLETED = "bill.payment.completed";
+    public static final String BILL_PAYMENT_FAILED    = "bill.payment.failed";
+
+    // ─── Savings events ───────────────────────────────────────────────────────
+    public static final String SAVINGS_GOAL_CREATED       = "savings.goal.created";
+    public static final String SAVINGS_DEPOSIT            = "savings.deposit";
+    public static final String SAVINGS_WITHDRAWAL         = "savings.withdrawal";
+    public static final String SAVINGS_AUTO_SAVE_EXECUTED = "savings.auto.save.executed";
+
+    // ─── Shop / BNPL events ───────────────────────────────────────────────────
+    public static final String SHOP_ORDER_PLACED    = "shop.order.placed";
+    public static final String SHOP_ORDER_SHIPPED   = "shop.order.shipped";
+    public static final String SHOP_ORDER_DELIVERED  = "shop.order.delivered";
+    public static final String SHOP_BNPL_APPROVED   = "shop.bnpl.approved";
 }

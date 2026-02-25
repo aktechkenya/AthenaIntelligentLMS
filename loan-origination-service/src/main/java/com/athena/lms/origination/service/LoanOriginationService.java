@@ -8,6 +8,7 @@ import com.athena.lms.origination.dto.response.*;
 import com.athena.lms.origination.entity.*;
 import com.athena.lms.origination.enums.ApplicationStatus;
 import com.athena.lms.origination.enums.RiskGrade;
+import com.athena.lms.origination.client.ProductClient;
 import com.athena.lms.origination.event.LoanOriginationEventPublisher;
 import com.athena.lms.origination.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -30,9 +31,11 @@ public class LoanOriginationService {
 
     private final LoanApplicationRepository applicationRepo;
     private final LoanOriginationEventPublisher eventPublisher;
+    private final ProductClient productClient;
 
     @Transactional
     public ApplicationResponse create(CreateApplicationRequest req, String tenantId, String userId) {
+        productClient.validateProductActiveAndExists(req.getProductId());
         LoanApplication app = LoanApplication.builder()
             .tenantId(tenantId)
             .customerId(req.getCustomerId())

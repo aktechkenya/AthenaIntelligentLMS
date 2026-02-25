@@ -110,6 +110,14 @@ public class AccountController {
         return accountService.getByCustomerId(customerId, getTenantId(httpRequest));
     }
 
+    @PutMapping("/{id}/status")
+    public AccountResponse updateStatus(
+            @PathVariable UUID id,
+            @RequestParam String status,
+            HttpServletRequest httpRequest) {
+        return accountService.updateStatus(id, status, getTenantId(httpRequest));
+    }
+
     private String getTenantId(HttpServletRequest req) {
         String tid = (String) req.getAttribute("tenantId");
         return tid != null ? tid : TenantContextHolder.getTenantIdOrDefault();

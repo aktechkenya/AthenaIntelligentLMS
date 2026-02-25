@@ -217,8 +217,12 @@ public class LoanManagementService {
         if (req.getNewFrequency() != null) loan.setRepaymentFrequency(req.getNewFrequency());
         loan.setStatus(LoanStatus.RESTRUCTURED);
 
-        // Regenerate schedule from current outstanding principal
+        // Delete old schedule rows explicitly to avoid unique constraint (loan_id, installment_no)
+        // during re-insert. orphanRemoval would work but Hibernate orders INSERTs before DELETEs.
+        scheduleRepo.deleteByLoanId(loanId);
+        scheduleRepo.flush();
         loan.getSchedules().clear();
+
         loan.setDisbursedAmount(loan.getOutstandingPrincipal()); // base new schedule on outstanding
         loan.setFirstRepaymentDate(LocalDate.now().plusMonths(1));
         loan.setMaturityDate(loan.getFirstRepaymentDate().plusMonths(req.getNewTenorMonths() - 1));

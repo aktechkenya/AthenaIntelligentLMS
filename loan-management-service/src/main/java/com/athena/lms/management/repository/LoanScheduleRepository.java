@@ -11,4 +11,5 @@ public interface LoanScheduleRepository extends JpaRepository<LoanSchedule, UUID
     List<LoanSchedule> findByLoanIdOrderByInstallmentNo(UUID loanId);
     Optional<LoanSchedule> findByLoanIdAndInstallmentNo(UUID loanId, Integer installmentNo);
     List<LoanSchedule> findByLoanIdAndStatus(UUID loanId, String status);
+    void deleteByLoanId(UUID loanId);
 }

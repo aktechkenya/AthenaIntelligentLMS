@@ -43,6 +43,12 @@ public class LmsRabbitMQConfig {
     public static final String LOAN_SUBMITTED_KEY          = "loan.application.submitted";
     public static final String ACCOUNT_CREDIT_KEY          = "account.credit.received";
 
+    // ─── Mobile wallet routing patterns ────────────────────────────────────────
+    public static final String MOBILE_ROUTING_PATTERN      = "mobile.#";
+    public static final String BILL_ROUTING_PATTERN        = "bill.#";
+    public static final String SAVINGS_ROUTING_PATTERN     = "savings.#";
+    public static final String SHOP_ROUTING_PATTERN        = "shop.#";
+
     @Bean
     public TopicExchange lmsExchange() {
         return new TopicExchange(LMS_EXCHANGE, true, false);

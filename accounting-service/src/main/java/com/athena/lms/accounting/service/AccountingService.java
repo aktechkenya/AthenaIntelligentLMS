@@ -67,7 +67,7 @@ public class AccountingService {
     }
 
     public AccountResponse getAccount(UUID id, String tenantId) {
-        return toAccountResponse(coaRepo.findByIdAndTenantId(id, tenantId)
+        return toAccountResponse(coaRepo.findByIdAndTenantIdIn(id, List.of(tenantId, "system"))
             .orElseThrow(() -> new ResourceNotFoundException("Account", id.toString())));
     }
 
@@ -136,7 +136,7 @@ public class AccountingService {
     // ─── Balances & Reporting ─────────────────────────────────────────────────────
 
     public BalanceResponse getBalance(UUID accountId, String tenantId, int year, int month) {
-        ChartOfAccount account = coaRepo.findByIdAndTenantId(accountId, tenantId)
+        ChartOfAccount account = coaRepo.findByIdAndTenantIdIn(accountId, List.of(tenantId, "system"))
             .orElseThrow(() -> new ResourceNotFoundException("Account", accountId.toString()));
 
         BigDecimal net = lineRepo.getNetBalance(accountId, tenantId);
@@ -157,7 +157,7 @@ public class AccountingService {
     }
 
     public List<JournalLineResponse> getLedger(UUID accountId, String tenantId) {
-        coaRepo.findByIdAndTenantId(accountId, tenantId)
+        coaRepo.findByIdAndTenantIdIn(accountId, List.of(tenantId, "system"))
             .orElseThrow(() -> new ResourceNotFoundException("Account", accountId.toString()));
         return lineRepo.findByAccountId(accountId).stream()
             .map(l -> toLineResponse(l, null))

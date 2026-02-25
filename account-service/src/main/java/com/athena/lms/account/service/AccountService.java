@@ -243,6 +243,20 @@ public class AccountService {
                 .stream().map(AccountResponse::from).collect(Collectors.toList());
     }
 
+    @Transactional
+    public AccountResponse updateStatus(UUID accountId, String status, String tenantId) {
+        Account account = accountRepository.findByIdAndTenantId(accountId, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Account", accountId));
+        Account.AccountStatus newStatus;
+        try {
+            newStatus = Account.AccountStatus.valueOf(status.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw BusinessException.badRequest("Invalid account status: " + status);
+        }
+        account.setStatus(newStatus);
+        return AccountResponse.from(accountRepository.save(account));
+    }
+
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
     private String generateAccountNumber(String tenantId) {

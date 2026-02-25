@@ -15,4 +15,5 @@ public interface ChartOfAccountRepository extends JpaRepository<ChartOfAccount, 
     Optional<ChartOfAccount> findByIdAndTenantId(UUID id, String tenantId);
     // Fall back to system accounts if tenant doesn't have own CoA
     Optional<ChartOfAccount> findByCodeAndTenantIdIn(String code, List<String> tenantIds);
+    Optional<ChartOfAccount> findByIdAndTenantIdIn(UUID id, List<String> tenantIds);
 }

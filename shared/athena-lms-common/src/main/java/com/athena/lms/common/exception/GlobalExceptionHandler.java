@@ -9,8 +9,10 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -65,6 +67,16 @@ public class GlobalExceptionHandler {
         }
         log.debug("Request body parse error: {}", message);
         return errorResponse(HttpStatus.BAD_REQUEST, "Invalid request body: " + message);
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleNoResource(NoResourceFoundException ex) {
+        return errorResponse(HttpStatus.NOT_FOUND, "Endpoint not found: " + ex.getResourcePath());
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<Map<String, Object>> handleMissingParam(MissingServletRequestParameterException ex) {
+        return errorResponse(HttpStatus.BAD_REQUEST, "Required parameter missing: " + ex.getParameterName());
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
