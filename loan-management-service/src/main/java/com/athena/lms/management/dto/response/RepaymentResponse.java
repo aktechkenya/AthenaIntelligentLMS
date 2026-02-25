@@ -11,6 +11,7 @@ import java.util.UUID;
 @Data @Builder
 public class RepaymentResponse {
     private UUID id;
+    private String status;
     private BigDecimal amount;
     private String currency;
     private BigDecimal penaltyApplied;

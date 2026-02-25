@@ -9,7 +9,7 @@ import java.time.LocalDate;
 @Data
 public class RepaymentRequest {
     @NotNull @Positive private BigDecimal amount;
-    @NotNull private LocalDate paymentDate;
+    private LocalDate paymentDate; // defaults to today if not supplied
     private String paymentReference;
     private String paymentMethod;
     private String currency = "KES";
