@@ -24,8 +24,8 @@ public class Payment {
     @Column(name = "tenant_id", nullable = false, length = 50)
     private String tenantId;
 
-    @Column(name = "customer_id", nullable = false)
-    private UUID customerId;
+    @Column(name = "customer_id", nullable = false, length = 100)
+    private String customerId;
 
     @Column(name = "loan_id")
     private UUID loanId;

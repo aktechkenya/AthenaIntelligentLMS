@@ -147,7 +147,7 @@ public class ComplianceService {
         return mapToKycResponse(record);
     }
 
-    public KycResponse passKyc(Long customerId, String tenantId) {
+    public KycResponse passKyc(String customerId, String tenantId) {
         KycRecord record = kycRepository.findByTenantIdAndCustomerId(tenantId, customerId)
                 .orElseThrow(() -> new ResourceNotFoundException("KYC record not found for customerId: " + customerId));
 
@@ -160,7 +160,7 @@ public class ComplianceService {
         return mapToKycResponse(record);
     }
 
-    public KycResponse failKyc(Long customerId, String failureReason, String tenantId) {
+    public KycResponse failKyc(String customerId, String failureReason, String tenantId) {
         KycRecord record = kycRepository.findByTenantIdAndCustomerId(tenantId, customerId)
                 .orElseThrow(() -> new ResourceNotFoundException("KYC record not found for customerId: " + customerId));
 
@@ -175,7 +175,7 @@ public class ComplianceService {
     }
 
     @Transactional(readOnly = true)
-    public KycResponse getKyc(Long customerId, String tenantId) {
+    public KycResponse getKyc(String customerId, String tenantId) {
         KycRecord record = kycRepository.findByTenantIdAndCustomerId(tenantId, customerId)
                 .orElseThrow(() -> new ResourceNotFoundException("KYC record not found for customerId: " + customerId));
         return mapToKycResponse(record);

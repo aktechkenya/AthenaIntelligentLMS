@@ -7,5 +7,5 @@ import java.util.List;
 import java.util.UUID;
 
 public interface PaymentMethodRepository extends JpaRepository<PaymentMethod, UUID> {
-    List<PaymentMethod> findByTenantIdAndCustomerIdAndIsActiveTrue(String tenantId, UUID customerId);
+    List<PaymentMethod> findByTenantIdAndCustomerIdAndIsActiveTrue(String tenantId, String customerId);
 }

@@ -1,14 +1,14 @@
 package com.athena.lms.compliance.dto.request;
 
 import com.athena.lms.compliance.enums.RiskLevel;
-import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
 @Data
 public class KycRequest {
 
-    @NotNull(message = "Customer ID is required")
-    private Long customerId;
+    @NotBlank(message = "Customer ID is required")
+    private String customerId;
 
     private String checkType = "FULL_KYC";
 

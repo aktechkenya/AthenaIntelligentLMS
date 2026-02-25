@@ -32,8 +32,8 @@ public class CollectionCase {
     @Column(name = "loan_id", nullable = false)
     private UUID loanId;
 
-    @Column(name = "customer_id", nullable = false)
-    private Long customerId;
+    @Column(name = "customer_id", length = 100)
+    private String customerId;
 
     @Column(name = "case_number", nullable = false, length = 50)
     private String caseNumber;

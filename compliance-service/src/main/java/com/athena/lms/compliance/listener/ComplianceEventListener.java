@@ -74,7 +74,7 @@ public class ComplianceEventListener {
             if (innerPayload instanceof Map<?, ?> map) {
                 Object customerIdObj = map.get("customerId");
                 if (customerIdObj != null) {
-                    Long customerId = Long.valueOf(customerIdObj.toString());
+                    String customerId = customerIdObj.toString();
                     Optional<KycRecord> record = kycRepository.findByTenantIdAndCustomerId(tenantId, customerId);
                     record.ifPresent(kyc -> {
                         kyc.setStatus(KycStatus.PASSED);
@@ -94,7 +94,7 @@ public class ComplianceEventListener {
             if (innerPayload instanceof Map<?, ?> map) {
                 Object customerIdObj = map.get("customerId");
                 if (customerIdObj != null) {
-                    Long customerId = Long.valueOf(customerIdObj.toString());
+                    String customerId = customerIdObj.toString();
                     String failureReason = extractString((Map<?, ?>) map, "failureReason", null);
                     Optional<KycRecord> record = kycRepository.findByTenantIdAndCustomerId(tenantId, customerId);
                     record.ifPresent(kyc -> {

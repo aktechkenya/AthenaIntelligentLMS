@@ -50,8 +50,8 @@ public class AmlAlert {
     @Column(name = "subject_id", nullable = false, length = 100)
     private String subjectId;
 
-    @Column(name = "customer_id")
-    private Long customerId;
+    @Column(name = "customer_id", length = 100)
+    private String customerId;
 
     @Column(name = "description", nullable = false, columnDefinition = "TEXT")
     private String description;

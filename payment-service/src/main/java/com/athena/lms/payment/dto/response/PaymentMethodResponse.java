@@ -10,7 +10,7 @@ import java.util.UUID;
 @Data @Builder
 public class PaymentMethodResponse {
     private UUID id;
-    private UUID customerId;
+    private String customerId;
     private PaymentMethodType methodType;
     private String alias;
     private String accountNumber;

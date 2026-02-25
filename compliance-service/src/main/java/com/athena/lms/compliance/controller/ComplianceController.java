@@ -114,7 +114,7 @@ public class ComplianceController {
 
     @GetMapping("/kyc/{customerId}")
     public ResponseEntity<KycResponse> getKyc(
-            @PathVariable Long customerId,
+            @PathVariable String customerId,
             HttpServletRequest httpRequest) {
         String tenantId = resolveTenantId(httpRequest);
         return ResponseEntity.ok(complianceService.getKyc(customerId, tenantId));
@@ -122,7 +122,7 @@ public class ComplianceController {
 
     @PostMapping("/kyc/{customerId}/pass")
     public ResponseEntity<KycResponse> passKyc(
-            @PathVariable Long customerId,
+            @PathVariable String customerId,
             HttpServletRequest httpRequest) {
         String tenantId = resolveTenantId(httpRequest);
         return ResponseEntity.ok(complianceService.passKyc(customerId, tenantId));
@@ -130,7 +130,7 @@ public class ComplianceController {
 
     @PostMapping("/kyc/{customerId}/fail")
     public ResponseEntity<KycResponse> failKyc(
-            @PathVariable Long customerId,
+            @PathVariable String customerId,
             @Valid @RequestBody ResolveAlertRequest request,
             HttpServletRequest httpRequest) {
         String tenantId = resolveTenantId(httpRequest);

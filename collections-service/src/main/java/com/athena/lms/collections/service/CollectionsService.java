@@ -43,7 +43,7 @@ public class CollectionsService {
     // Case lifecycle
     // -----------------------------------------------------------------------
 
-    public void openOrUpdateCase(UUID loanId, Long customerId, int dpd,
+    public void openOrUpdateCase(UUID loanId, String customerId, int dpd,
                                   String stage, BigDecimal outstandingAmount, String tenantId) {
         Optional<CollectionCase> existing = caseRepository.findByLoanId(loanId);
         if (existing.isEmpty()) {

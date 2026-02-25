@@ -43,7 +43,7 @@ public class LoanDisbursedPaymentListener {
 
             String tenantId    = (String) event.get("tenantId");
             UUID applicationId = UUID.fromString(event.get("applicationId").toString());
-            UUID customerId    = UUID.fromString(event.get("customerId").toString());
+            String customerId  = event.get("customerId").toString();
             BigDecimal amount  = new BigDecimal(event.get("amount").toString());
             String currency    = event.containsKey("currency") ? (String) event.get("currency") : "KES";
 

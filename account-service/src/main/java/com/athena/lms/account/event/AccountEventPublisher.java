@@ -19,7 +19,7 @@ public class AccountEventPublisher {
 
     private final RabbitTemplate lmsRabbitTemplate;
 
-    public void publishCreated(UUID accountId, String accountNumber, Long customerId, String tenantId) {
+    public void publishCreated(UUID accountId, String accountNumber, String customerId, String tenantId) {
         publish(EventTypes.ACCOUNT_CREATED, tenantId,
                 Map.of("accountId", accountId.toString(),
                        "accountNumber", accountNumber,

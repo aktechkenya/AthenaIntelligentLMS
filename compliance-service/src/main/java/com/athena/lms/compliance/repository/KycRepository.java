@@ -13,7 +13,7 @@ import java.util.UUID;
 @Repository
 public interface KycRepository extends JpaRepository<KycRecord, UUID> {
 
-    Optional<KycRecord> findByTenantIdAndCustomerId(String tenantId, Long customerId);
+    Optional<KycRecord> findByTenantIdAndCustomerId(String tenantId, String customerId);
 
     Page<KycRecord> findByTenantId(String tenantId, Pageable pageable);
 

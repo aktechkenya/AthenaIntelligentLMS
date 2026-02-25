@@ -11,7 +11,7 @@ import java.util.UUID;
 public class KycResponse {
     private UUID id;
     private String tenantId;
-    private Long customerId;
+    private String customerId;
     private KycStatus status;
     private String checkType;
     private String nationalId;

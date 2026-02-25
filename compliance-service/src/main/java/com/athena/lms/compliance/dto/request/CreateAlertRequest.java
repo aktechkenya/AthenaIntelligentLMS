@@ -22,7 +22,7 @@ public class CreateAlertRequest {
     @NotBlank(message = "Subject ID is required")
     private String subjectId;
 
-    private Long customerId;
+    private String customerId;
 
     @NotBlank(message = "Description is required")
     private String description;

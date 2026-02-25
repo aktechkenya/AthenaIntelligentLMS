@@ -18,7 +18,7 @@ public class ComplianceEventPublisher {
 
     private final RabbitTemplate lmsRabbitTemplate;
 
-    public void publishAmlAlertRaised(UUID alertId, String alertType, Long customerId, String tenantId) {
+    public void publishAmlAlertRaised(UUID alertId, String alertType, String customerId, String tenantId) {
         try {
             DomainEvent<Map<String, Object>> event = DomainEvent.of(
                     EventTypes.AML_ALERT_RAISED,
@@ -55,7 +55,7 @@ public class ComplianceEventPublisher {
         }
     }
 
-    public void publishKycPassed(Long customerId, String tenantId) {
+    public void publishKycPassed(String customerId, String tenantId) {
         try {
             DomainEvent<Map<String, Object>> event = DomainEvent.of(
                     EventTypes.CUSTOMER_KYC_PASSED,
@@ -70,7 +70,7 @@ public class ComplianceEventPublisher {
         }
     }
 
-    public void publishKycFailed(Long customerId, String failureReason, String tenantId) {
+    public void publishKycFailed(String customerId, String failureReason, String tenantId) {
         try {
             DomainEvent<Map<String, Object>> event = DomainEvent.of(
                     EventTypes.CUSTOMER_KYC_FAILED,

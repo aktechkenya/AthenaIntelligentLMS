@@ -18,7 +18,7 @@ public class AlertResponse {
     private AlertStatus status;
     private String subjectType;
     private String subjectId;
-    private Long customerId;
+    private String customerId;
     private String description;
     private String triggerEvent;
     private BigDecimal triggerAmount;

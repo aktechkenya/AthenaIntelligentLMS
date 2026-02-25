@@ -30,8 +30,8 @@ public class Account {
     @Column(name = "account_number", nullable = false, unique = true, length = 20)
     private String accountNumber;
 
-    @Column(name = "customer_id", nullable = false)
-    private Long customerId;
+    @Column(name = "customer_id", nullable = false, length = 100)
+    private String customerId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "account_type", nullable = false, length = 20)

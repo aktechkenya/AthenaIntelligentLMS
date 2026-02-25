@@ -28,8 +28,8 @@ public class KycRecord {
     @Column(name = "tenant_id", nullable = false, length = 50)
     private String tenantId;
 
-    @Column(name = "customer_id", nullable = false)
-    private Long customerId;
+    @Column(name = "customer_id", nullable = false, length = 100)
+    private String customerId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 30)

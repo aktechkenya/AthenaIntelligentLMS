@@ -3,14 +3,13 @@ package com.athena.lms.account.dto.request;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 @Data
 public class CreateAccountRequest {
 
-    @NotNull(message = "customerId is required")
-    private Long customerId;
+    @NotBlank(message = "customerId is required")
+    private String customerId;
 
     @NotBlank(message = "accountType is required")
     private String accountType;   // CURRENT | SAVINGS | WALLET

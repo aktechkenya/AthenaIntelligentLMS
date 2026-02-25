@@ -51,7 +51,7 @@ public class PaymentController {
     }
 
     @GetMapping("/customer/{customerId}")
-    public List<PaymentResponse> listByCustomer(@PathVariable UUID customerId, HttpServletRequest httpReq) {
+    public List<PaymentResponse> listByCustomer(@PathVariable String customerId, HttpServletRequest httpReq) {
         return service.listByCustomer(customerId, tenantId(httpReq));
     }
 
@@ -94,7 +94,7 @@ public class PaymentController {
     }
 
     @GetMapping("/methods/customer/{customerId}")
-    public List<PaymentMethodResponse> getMethods(@PathVariable UUID customerId, HttpServletRequest httpReq) {
+    public List<PaymentMethodResponse> getMethods(@PathVariable String customerId, HttpServletRequest httpReq) {
         return service.getPaymentMethods(customerId, tenantId(httpReq));
     }
 

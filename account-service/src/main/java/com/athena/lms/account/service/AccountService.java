@@ -238,7 +238,7 @@ public class AccountService {
     }
 
     @Transactional(readOnly = true)
-    public List<AccountResponse> getByCustomerId(Long customerId, String tenantId) {
+    public List<AccountResponse> getByCustomerId(String customerId, String tenantId) {
         return accountRepository.findByCustomerIdAndTenantId(customerId, tenantId)
                 .stream().map(AccountResponse::from).collect(Collectors.toList());
     }

@@ -14,7 +14,7 @@ public class CollectionCaseResponse {
     private UUID id;
     private String tenantId;
     private UUID loanId;
-    private Long customerId;
+    private String customerId;
     private String caseNumber;
     private CaseStatus status;
     private CasePriority priority;

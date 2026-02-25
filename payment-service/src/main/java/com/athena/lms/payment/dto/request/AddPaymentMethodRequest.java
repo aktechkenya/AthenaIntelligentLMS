@@ -8,7 +8,7 @@ import java.util.UUID;
 
 @Data
 public class AddPaymentMethodRequest {
-    @NotNull private UUID customerId;
+    @NotBlank private String customerId;
     @NotNull private PaymentMethodType methodType;
     @NotBlank private String accountNumber;
     private String accountName;

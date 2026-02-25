@@ -105,7 +105,7 @@ public class AccountController {
 
     @GetMapping("/customer/{customerId}")
     public List<AccountResponse> getByCustomerId(
-            @PathVariable Long customerId,
+            @PathVariable String customerId,
             HttpServletRequest httpRequest) {
         return accountService.getByCustomerId(customerId, getTenantId(httpRequest));
     }

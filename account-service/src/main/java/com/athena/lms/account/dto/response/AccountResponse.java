@@ -13,7 +13,7 @@ public class AccountResponse {
 
     private UUID id;
     private String accountNumber;
-    private Long customerId;
+    private String customerId;
     private String accountType;
     private String status;
     private String currency;

@@ -14,7 +14,7 @@ import java.util.UUID;
 public class PaymentResponse {
     private UUID id;
     private String tenantId;
-    private UUID customerId;
+    private String customerId;
     private UUID loanId;
     private UUID applicationId;
     private PaymentType paymentType;

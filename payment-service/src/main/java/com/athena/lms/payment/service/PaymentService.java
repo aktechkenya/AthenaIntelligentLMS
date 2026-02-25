@@ -76,7 +76,7 @@ public class PaymentService {
         return PageResponse.from(page.map(this::toResponse));
     }
 
-    public List<PaymentResponse> listByCustomer(UUID customerId, String tenantId) {
+    public List<PaymentResponse> listByCustomer(String customerId, String tenantId) {
         return paymentRepo.findByTenantIdAndCustomerId(tenantId, customerId)
             .stream().map(this::toResponse).collect(Collectors.toList());
     }
@@ -155,7 +155,7 @@ public class PaymentService {
         return toMethodResponse(methodRepo.save(method));
     }
 
-    public List<PaymentMethodResponse> getPaymentMethods(UUID customerId, String tenantId) {
+    public List<PaymentMethodResponse> getPaymentMethods(String customerId, String tenantId) {
         return methodRepo.findByTenantIdAndCustomerIdAndIsActiveTrue(tenantId, customerId)
             .stream().map(this::toMethodResponse).collect(Collectors.toList());
     }

@@ -17,7 +17,7 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
 
     Optional<Account> findByIdAndTenantId(UUID id, String tenantId);
 
-    List<Account> findByCustomerIdAndTenantId(Long customerId, String tenantId);
+    List<Account> findByCustomerIdAndTenantId(String customerId, String tenantId);
 
     Page<Account> findByTenantId(String tenantId, Pageable pageable);
 

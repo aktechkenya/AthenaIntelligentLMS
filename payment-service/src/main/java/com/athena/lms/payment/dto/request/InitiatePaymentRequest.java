@@ -10,7 +10,7 @@ import java.util.UUID;
 
 @Data
 public class InitiatePaymentRequest {
-    @NotNull private UUID customerId;
+    @NotBlank private String customerId;
     @NotNull private PaymentType paymentType;
     @NotNull private PaymentChannel paymentChannel;
     @NotNull @Positive private BigDecimal amount;

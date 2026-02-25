@@ -16,7 +16,7 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     Page<Payment> findByTenantId(String tenantId, Pageable pageable);
     Page<Payment> findByTenantIdAndStatus(String tenantId, PaymentStatus status, Pageable pageable);
     Page<Payment> findByTenantIdAndPaymentType(String tenantId, PaymentType type, Pageable pageable);
-    List<Payment> findByTenantIdAndCustomerId(String tenantId, UUID customerId);
+    List<Payment> findByTenantIdAndCustomerId(String tenantId, String customerId);
     Optional<Payment> findByInternalReference(String internalReference);
     Optional<Payment> findByExternalReference(String externalReference);
     List<Payment> findByLoanId(UUID loanId);

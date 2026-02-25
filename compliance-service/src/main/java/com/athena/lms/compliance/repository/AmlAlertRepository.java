@@ -18,7 +18,7 @@ public interface AmlAlertRepository extends JpaRepository<AmlAlert, UUID> {
 
     Page<AmlAlert> findByTenantIdAndStatus(String tenantId, AlertStatus status, Pageable pageable);
 
-    List<AmlAlert> findByTenantIdAndCustomerId(String tenantId, Long customerId);
+    List<AmlAlert> findByTenantIdAndCustomerId(String tenantId, String customerId);
 
     long countByTenantIdAndStatus(String tenantId, AlertStatus status);
 
