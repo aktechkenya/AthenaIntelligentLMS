@@ -1,0 +1,40 @@
+# Maven
+**/target/
+**/.mvn/wrapper/maven-wrapper.jar
+**/pom.xml.tag
+**/pom.xml.releaseBackup
+**/pom.xml.versionsBackup
+**/pom.xml.next
+**/release.properties
+**/dependency-reduced-pom.xml
+**/buildNumber.properties
+
+# IDEs
+**/.idea/
+**/*.iml
+**/*.iws
+**/.vscode/
+**/*.classpath
+**/*.project
+**/.settings/
+
+# Node / npm
+lms-portal-ui/node_modules/
+lms-portal-ui/dist/
+lms-portal-ui/.vite/
+
+# Environment / secrets
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Docker volumes / data
+**/data/
+
+# Logs
+**/*.log
+**/logs/
+
+# OS
+.DS_Store
+Thumbs.db

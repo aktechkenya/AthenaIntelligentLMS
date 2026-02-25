@@ -1,0 +1,103 @@
+-- AthenaLMS — Create all service databases
+-- Run as postgres superuser before starting services
+-- Usage: psql -U postgres -f init-lms-databases.sql
+
+\set ON_ERROR_STOP on
+
+-- ─── Account Service ──────────────────────────────────────────────────────────
+SELECT 'Creating athena_accounts...' AS step;
+CREATE DATABASE athena_accounts
+    WITH OWNER = athena ENCODING = 'UTF8' TEMPLATE = template0;
+
+\c athena_accounts
+GRANT ALL PRIVILEGES ON DATABASE athena_accounts TO athena;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS btree_gin;
+
+-- ─── Product Service ──────────────────────────────────────────────────────────
+SELECT 'Creating athena_products...' AS step;
+CREATE DATABASE athena_products
+    WITH OWNER = athena ENCODING = 'UTF8' TEMPLATE = template0;
+
+\c athena_products
+GRANT ALL PRIVILEGES ON DATABASE athena_products TO athena;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- ─── Loan Services (shared DB) ────────────────────────────────────────────────
+SELECT 'Creating athena_loans...' AS step;
+CREATE DATABASE athena_loans
+    WITH OWNER = athena ENCODING = 'UTF8' TEMPLATE = template0;
+
+\c athena_loans
+GRANT ALL PRIVILEGES ON DATABASE athena_loans TO athena;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- ─── Payment Service ──────────────────────────────────────────────────────────
+SELECT 'Creating athena_payments...' AS step;
+CREATE DATABASE athena_payments
+    WITH OWNER = athena ENCODING = 'UTF8' TEMPLATE = template0;
+
+\c athena_payments
+GRANT ALL PRIVILEGES ON DATABASE athena_payments TO athena;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- ─── Accounting Service ───────────────────────────────────────────────────────
+SELECT 'Creating athena_accounting...' AS step;
+CREATE DATABASE athena_accounting
+    WITH OWNER = athena ENCODING = 'UTF8' TEMPLATE = template0;
+
+\c athena_accounting
+GRANT ALL PRIVILEGES ON DATABASE athena_accounting TO athena;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- ─── Float Service ────────────────────────────────────────────────────────────
+SELECT 'Creating athena_float...' AS step;
+CREATE DATABASE athena_float
+    WITH OWNER = athena ENCODING = 'UTF8' TEMPLATE = template0;
+
+\c athena_float
+GRANT ALL PRIVILEGES ON DATABASE athena_float TO athena;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- ─── Collections Service ──────────────────────────────────────────────────────
+SELECT 'Creating athena_collections...' AS step;
+CREATE DATABASE athena_collections
+    WITH OWNER = athena ENCODING = 'UTF8' TEMPLATE = template0;
+
+\c athena_collections
+GRANT ALL PRIVILEGES ON DATABASE athena_collections TO athena;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- ─── Compliance Service ───────────────────────────────────────────────────────
+SELECT 'Creating athena_compliance...' AS step;
+CREATE DATABASE athena_compliance
+    WITH OWNER = athena ENCODING = 'UTF8' TEMPLATE = template0;
+
+\c athena_compliance
+GRANT ALL PRIVILEGES ON DATABASE athena_compliance TO athena;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- ─── Reporting Service ────────────────────────────────────────────────────────
+SELECT 'Creating athena_reporting...' AS step;
+CREATE DATABASE athena_reporting
+    WITH OWNER = athena ENCODING = 'UTF8' TEMPLATE = template0;
+
+\c athena_reporting
+GRANT ALL PRIVILEGES ON DATABASE athena_reporting TO athena;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS dblink;
+
+-- ─── AI Scoring Service ───────────────────────────────────────────────────────
+SELECT 'Creating athena_scoring...' AS step;
+CREATE DATABASE athena_scoring
+    WITH OWNER = athena ENCODING = 'UTF8' TEMPLATE = template0;
+
+\c athena_scoring
+GRANT ALL PRIVILEGES ON DATABASE athena_scoring TO athena;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+SELECT 'All LMS databases created successfully.' AS result;
