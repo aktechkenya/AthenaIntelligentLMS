@@ -36,6 +36,9 @@ x-lms-env: &lms-env
   JWT_SECRET: ${JWT_SECRET}
   EUREKA_URI: http://discovery-server:8761/eureka/
   APP_ENV: production
+  # Internal service-to-service auth key (shared with wallet microservices)
+  # Wallet services send X-Service-Key: <this value> to authenticate service-to-service calls
+  LMS_INTERNAL_SERVICE_KEY: ${LMS_INTERNAL_SERVICE_KEY:-1473bdcbf4d90d90833bb90cf042faa16d3f5729c258624de9118eb4519ffe17}
 
 services:
 

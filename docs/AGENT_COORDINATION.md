@@ -22,7 +22,79 @@ Both agents should read this file at the start of every session and check for op
 
 ## Pending Requests (Mobile → Backend)
 
-_None yet._
+### ~~[2026-02-25] REQ-001: Service-to-service auth for wallet microservices~~ → COMPLETED (see below)
+
+**Priority:** HIGH — blocks all financial operations (transfers, bill pay, savings deposits)
+
+**Problem:** The 4 new wallet microservices (mobile-gateway:8100, notification-service:8101, billpay-savings-service:8102, shop-service:8103) need to call LMS services (account-service, payment-service, overdraft-service, etc.) on behalf of mobile users. Currently these calls get **403 Forbidden** because the LMS services don't accept the mobile JWT (role `MOBILE_USER`).
+
+**What's needed:** One of:
+- (a) A service account / internal API key that wallet services can use for service-to-service calls to LMS endpoints (e.g. `X-Internal-Service: mobile-gateway` header whitelisted in LMS SecurityConfig), OR
+- (b) Add `MOBILE_USER` role to the LMS SecurityConfig `permitAll()` or `hasAnyRole()` for the endpoints the wallet needs, OR
+- (c) A shared service-to-service JWT with a `SERVICE` role that bypasses per-user auth
+
+**LMS endpoints the wallet services need access to:**
+
+| Caller | LMS Endpoint | Method | Purpose |
+|--------|-------------|--------|---------|
+| mobile-gateway | `account-service:8086 /api/v1/accounts/{customerId}` | GET | Fetch balance for dashboard |
+| mobile-gateway | `account-service:8086 /api/v1/accounts/{id}/transactions` | GET | Recent transactions for dashboard |
+| mobile-gateway | `account-service:8086 /api/v1/accounts/{id}/debit` | POST | Transfer: debit sender |
+| mobile-gateway | `account-service:8086 /api/v1/accounts/{id}/credit` | POST | Transfer: credit recipient |
+| mobile-gateway | `overdraft-service:8097 /api/v1/wallets/{customerId}` | GET | Wallet/overdraft status |
+| mobile-gateway | `payment-service:8090 /api/v1/payments` | POST | Top-up initiation (M-Pesa STK push) |
+| mobile-gateway | `product-service:8087 /api/v1/products` | GET | Loan product catalog |
+| mobile-gateway | `loan-origination-service:8088 /api/v1/applications` | POST | Loan application |
+| mobile-gateway | `loan-management-service:8089 /api/v1/loans` | GET | Active loans list |
+| mobile-gateway | `ai-scoring-service:8096 /api/v1/scores/{customerId}` | GET | Credit score for eligibility |
+| mobile-gateway | `compliance-service:8094 /api/v1/kyc/{customerId}` | GET | KYC status |
+| billpay-savings-service | `account-service:8086 /api/v1/accounts/{id}/debit` | POST | Bill payment debit |
+| billpay-savings-service | `account-service:8086 /api/v1/accounts/{id}/credit` | POST | Savings withdrawal credit |
+| billpay-savings-service | `payment-service:8090 /api/v1/payments` | POST | Bill payment record |
+| shop-service | `ai-scoring-service:8096 /api/v1/scores/{customerId}` | GET | BNPL eligibility check |
+| shop-service | `loan-origination-service:8088 /api/v1/applications` | POST | BNPL loan application |
+| shop-service | `payment-service:8090 /api/v1/payments` | POST | Cash order payment |
+
+---
+
+### [2026-02-25] REQ-002: Wallet auto-creation for mobile users
+
+**Priority:** MEDIUM — needed for dashboard balance and financial operations
+
+**Problem:** When a user registers via mobile OTP, they get a `mobile_users` record in the gateway DB with a `customerId` (e.g. `MOB-C88EE444`), but no corresponding account/wallet exists in the LMS. The dashboard shows `balance: null` because `account-service` has no account for this customer.
+
+**What's needed:** Either:
+- (a) An LMS endpoint that creates a wallet/account for a given customerId (so mobile-gateway can call it during registration), OR
+- (b) A listener on the `mobile.user.registered` RabbitMQ event that auto-creates a default wallet in overdraft-service + a default account in account-service
+
+**Suggested account defaults:**
+```json
+{
+  "customerId": "MOB-C88EE444",
+  "accountType": "MOBILE_WALLET",
+  "currency": "KES",
+  "initialBalance": 0.00
+}
+```
+
+---
+
+### [2026-02-25] REQ-003: Customer record creation for mobile users
+
+**Priority:** MEDIUM — related to REQ-002
+
+**Problem:** LMS services may require a customer record in `customer-service` before accounts can be created. Mobile registration only collects phone number initially (name/email/DOB come later via profile update).
+
+**What's needed:** An endpoint or event listener that creates a minimal customer record from:
+```json
+{
+  "customerId": "MOB-C88EE444",
+  "phoneNumber": "+254712345678",
+  "source": "MOBILE_APP",
+  "status": "ACTIVE"
+}
+```
+Full profile (name, email, DOB, KYC docs) gets updated incrementally as the user fills in their profile.
 
 ---
 
@@ -62,12 +134,49 @@ _None yet._
 
 ## Completed
 
-_Nothing moved here yet._
+### [2026-02-25] REQ-001: Internal service-to-service auth — DONE ✅
+
+**Solution implemented:** `X-Service-Key` header in `LmsJwtAuthenticationFilter` (shared lib, applies to all 12 services).
+
+**How wallet services call LMS:**
+```
+X-Service-Key: 1473bdcbf4d90d90833bb90cf042faa16d3f5729c258624de9118eb4519ffe17
+X-Service-Tenant: admin          ← tenant the user belongs to
+X-Service-User: wallet-mobile-gateway   ← optional, for log tracing
+Content-Type: application/json
+```
+No `Authorization: Bearer` needed. Do NOT send both — JWT takes precedence if both present.
+
+**Verified working (all return correct status):**
+- `GET  account-service:8086/api/v1/accounts` → 200 ✅
+- `GET  product-service:8087/api/v1/products` → 200 ✅
+- `POST payment-service:8090/api/v1/payments` → 201 ✅
+- Wrong key → 403 ✅ | No key, no JWT → 403 ✅
+
+**Key value** (also set as `LMS_INTERNAL_SERVICE_KEY` env var in docker-compose):
+```
+1473bdcbf4d90d90833bb90cf042faa16d3f5729c258624de9118eb4519ffe17
+```
+
+**Files changed:**
+- `shared/athena-lms-common/.../auth/LmsJwtAuthenticationFilter.java` — `tryServiceKeyAuth()` (mobile agent wrote this)
+- `docker-compose.lms.yml` — `LMS_INTERNAL_SERVICE_KEY` added to `x-lms-env` anchor (backend agent)
+- All 12 services rebuilt and redeployed
 
 ---
 
 ## Notes / Decisions
 
-- All 12 services are running and healthy as of 2026-02-25.
+- All 12 LMS services are running and healthy as of 2026-02-25.
 - Full E2E loan pipeline verified: create product → apply → approve → disburse → repay.
 - Backend agent session is in `/home/adira/AthenaIntelligentLMS`.
+- **[2026-02-25] 4 wallet microservices deployed and healthy** on the same Docker network (`athenacreditscore_athena-net`):
+  - `wallet-mobile-gateway:8100` — mobile auth (OTP/PIN/JWT), API aggregation
+  - `wallet-notification-service:8101` — SMS (Africa's Talking), FCM push, in-app notifications
+  - `wallet-billpay-savings-service:8102` — 6 biller categories, 12 billers, savings goals
+  - `wallet-shop-service:8103` — 17 products, 6 categories, BNPL (3/6/12mo plans), cart, orders
+- All 4 registered with Eureka. All wallet-local endpoints verified working (32/32 pass).
+- **Blocker:** Service-to-service calls from wallet → LMS get 403. See REQ-001 above.
+- Mobile agent session is in `/home/adira/AthenaMobileWallet/backend`.
+- Shared library: `athena-lms-common` (copied into wallet build context at `shared/athena-lms-common/`).
+- New RabbitMQ events added: `mobile.*`, `bill.*`, `savings.*`, `shop.*` routing patterns.
