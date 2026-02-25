@@ -100,4 +100,13 @@ CREATE DATABASE athena_scoring
 GRANT ALL PRIVILEGES ON DATABASE athena_scoring TO athena;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- ─── Overdraft Service ────────────────────────────────────────────────────────
+SELECT 'Creating athena_overdraft...' AS step;
+CREATE DATABASE athena_overdraft
+    WITH OWNER = athena ENCODING = 'UTF8' TEMPLATE = template0;
+
+\c athena_overdraft
+GRANT ALL PRIVILEGES ON DATABASE athena_overdraft TO athena;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
 SELECT 'All LMS databases created successfully.' AS result;

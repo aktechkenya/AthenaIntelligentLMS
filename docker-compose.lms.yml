@@ -364,6 +364,36 @@ services:
       timeout: 10s
       retries: 5
 
+  # ─── Overdraft Service (port 8097) ───────────────────────────────────────────
+  overdraft-service:
+    <<: *lms-common
+    build:
+      context: /home/adira/AthenaIntelligentLMS
+      dockerfile: overdraft-service/Dockerfile
+    container_name: lms-overdraft-service
+    environment:
+      <<: *lms-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/athena_overdraft
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-athena}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
+      ATHENA_SCORING_URL: http://ai-scoring-service:8096
+    ports:
+      - "8097:8097"
+    depends_on:
+      lms-db-init:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      ai-scoring-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8097/actuator/health | grep -q UP || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
   # ─── LMS Portal UI (port 3000) ───────────────────────────────────────────────
   lms-portal-ui:
     <<: *lms-common

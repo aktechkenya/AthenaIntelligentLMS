@@ -163,7 +163,8 @@ public class LoanManagementService {
         // Update schedule installments (oldest first)
         updateScheduleWithRepayment(loan, req.getAmount(), penaltyApplied, feeApplied, interestApplied, principalApplied);
 
-        loan.setLastRepaymentDate(req.getPaymentDate());
+        LocalDate effectiveDate = req.getPaymentDate() != null ? req.getPaymentDate() : LocalDate.now();
+        loan.setLastRepaymentDate(effectiveDate);
         loan.setLastRepaymentAmount(req.getAmount());
 
         // Check if fully repaid
@@ -189,7 +190,7 @@ public class LoanManagementService {
             .principalApplied(principalApplied)
             .paymentReference(req.getPaymentReference())
             .paymentMethod(req.getPaymentMethod())
-            .paymentDate(req.getPaymentDate())
+            .paymentDate(effectiveDate)
             .createdBy(userId)
             .build();
 
@@ -397,6 +398,7 @@ public class LoanManagementService {
     private RepaymentResponse toRepaymentResponse(LoanRepayment r) {
         return RepaymentResponse.builder()
             .id(r.getId())
+            .status("COMPLETED")
             .amount(r.getAmount())
             .currency(r.getCurrency())
             .penaltyApplied(r.getPenaltyApplied())
