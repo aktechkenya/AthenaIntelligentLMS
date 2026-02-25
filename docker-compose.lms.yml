@@ -22,6 +22,7 @@ volumes:
   compliance_data:
   reporting_data:
   scoring_data:
+  loki_data:
 
 x-lms-common: &lms-common
   restart: unless-stopped
@@ -34,6 +35,7 @@ x-lms-env: &lms-env
   SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASS:-athena_secret}
   JWT_SECRET: ${JWT_SECRET}
   EUREKA_URI: http://discovery-server:8761/eureka/
+  APP_ENV: production
 
 services:
 
@@ -386,3 +388,33 @@ services:
       interval: 15s
       timeout: 10s
       retries: 5
+
+
+  # ─── Loki (log aggregation) ───────────────────────────────────────────────
+  loki:
+    image: grafana/loki:2.9.4
+    container_name: lms-loki
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki_data:/loki
+    networks:
+      - athena-net
+
+  # ─── Promtail (log shipper: Docker logs → Loki) ───────────────────────────
+  promtail:
+    image: grafana/promtail:2.9.4
+    container_name: lms-promtail
+    restart: unless-stopped
+    volumes:
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/adira/AthenaIntelligentLMS/monitoring/promtail:/etc/promtail:ro
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - athena-net
+    depends_on:
+      - loki

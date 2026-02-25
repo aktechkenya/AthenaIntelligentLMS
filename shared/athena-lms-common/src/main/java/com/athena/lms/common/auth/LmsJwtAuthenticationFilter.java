@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -65,7 +66,11 @@ public class LmsJwtAuthenticationFilter extends OncePerRequestFilter {
                     if (tenantId != null) {
                         TenantContextHolder.setTenantId(tenantId);
                         request.setAttribute("tenantId", tenantId);
+                        MDC.put("tenantId", tenantId);
                     }
+
+                    // Set userId in MDC for log correlation
+                    MDC.put("userId", username);
 
                     // Propagate customerId for downstream use
                     Long customerId = jwtUtil.extractCustomerId(token);
@@ -82,6 +87,7 @@ public class LmsJwtAuthenticationFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
         } finally {
             TenantContextHolder.clear();
+            // Note: MDC.clear() is handled by MdcLoggingFilter (higher precedence)
         }
     }
 }

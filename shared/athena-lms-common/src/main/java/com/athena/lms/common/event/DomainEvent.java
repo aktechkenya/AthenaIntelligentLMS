@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.slf4j.MDC;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -36,7 +37,7 @@ public class DomainEvent<T> {
     /** Tenant identifier for multi-tenant routing. */
     private String tenantId;
 
-    /** Correlation ID for distributed tracing. */
+    /** Correlation ID for distributed tracing — auto-populated from MDC requestId. */
     private String correlationId;
 
     @Builder.Default
@@ -53,6 +54,7 @@ public class DomainEvent<T> {
                 .type(type)
                 .source(source)
                 .tenantId(tenantId)
+                .correlationId(MDC.get("requestId"))
                 .payload(payload)
                 .build();
     }

@@ -40,10 +40,18 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus
+        include: health,info,prometheus,metrics,loggers
   endpoint:
     health:
       show-details: always
+  metrics:
+    tags:
+      service: ${spring.application.name}
+      env: ${APP_ENV:local}
+info:
+  app:
+    name: ${spring.application.name}
+    version: "1.0.0"
 
 eureka:
   client:

@@ -1,0 +1,41 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://lms-loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker-lms-containers
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: docker-lms
+          __path__: /var/lib/docker/containers/*/*-json.log
+
+    pipeline_stages:
+      # Unwrap Docker's JSON log envelope: {"log":"...","stream":"...","time":"..."}
+      - json:
+          expressions:
+            output: log
+            stream: stream
+      - output:
+          source: output
+
+      # Parse inner line as Spring JSON (best-effort; skipped if plain text)
+      - json:
+          expressions:
+            level: level
+            service: service
+            requestId: requestId
+            tenantId: tenantId
+            message: message
+
+      - labels:
+          level:
+          stream:
+          service:
