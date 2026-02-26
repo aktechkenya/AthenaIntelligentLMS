@@ -33,6 +33,30 @@ public class AccountEventPublisher {
                        "tenantId", tenantId));
     }
 
+    public void publishCustomerCreated(UUID id, String customerId, String tenantId) {
+        publish(EventTypes.CUSTOMER_CREATED, tenantId,
+                Map.of("id", id.toString(), "customerId", customerId));
+    }
+
+    public void publishCustomerUpdated(UUID id, String customerId, String tenantId) {
+        publish(EventTypes.CUSTOMER_UPDATED, tenantId,
+                Map.of("id", id.toString(), "customerId", customerId));
+    }
+
+    public void publishTransferCompleted(UUID transferId, UUID sourceAccountId,
+            UUID destAccountId, BigDecimal amount, String tenantId) {
+        publish(EventTypes.TRANSFER_COMPLETED, tenantId,
+                Map.of("transferId", transferId.toString(),
+                       "sourceAccountId", sourceAccountId.toString(),
+                       "destinationAccountId", destAccountId.toString(),
+                       "amount", amount));
+    }
+
+    public void publishTransferFailed(UUID transferId, String reason, String tenantId) {
+        publish(EventTypes.TRANSFER_FAILED, tenantId,
+                Map.of("transferId", transferId.toString(), "reason", reason));
+    }
+
     public void publishDebitProcessed(UUID accountId, BigDecimal amount, String tenantId) {
         publish(EventTypes.ACCOUNT_DEBIT_PROCESSED, tenantId,
                 Map.of("accountId", accountId.toString(),

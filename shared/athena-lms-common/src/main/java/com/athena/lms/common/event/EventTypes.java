@@ -51,6 +51,15 @@ public final class EventTypes {
     public static final String CUSTOMER_KYC_PASSED = "customer.kyc.passed";
     public static final String CUSTOMER_KYC_FAILED = "customer.kyc.failed";
 
+    // ─── Customer events ─────────────────────────────────────────────────────
+    public static final String CUSTOMER_CREATED  = "customer.created";
+    public static final String CUSTOMER_UPDATED  = "customer.updated";
+
+    // ─── Fund transfer events ────────────────────────────────────────────────
+    public static final String TRANSFER_INITIATED = "transfer.initiated";
+    public static final String TRANSFER_COMPLETED = "transfer.completed";
+    public static final String TRANSFER_FAILED    = "transfer.failed";
+
     // ─── Mobile wallet events ─────────────────────────────────────────────────
     public static final String MOBILE_USER_REGISTERED     = "mobile.user.registered";
     public static final String MOBILE_TRANSFER_COMPLETED  = "mobile.transfer.completed";

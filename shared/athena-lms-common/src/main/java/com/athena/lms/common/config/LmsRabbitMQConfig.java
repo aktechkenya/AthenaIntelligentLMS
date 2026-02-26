@@ -26,6 +26,8 @@ public class LmsRabbitMQConfig {
     public static final String LOAN_MGMT_QUEUE    = "athena.lms.loan.mgmt.queue";
     public static final String REPORTING_QUEUE    = "athena.lms.reporting.queue";
     public static final String FLOAT_QUEUE        = "athena.lms.float.queue";
+    public static final String ACCOUNT_MOBILE_QUEUE  = "athena.lms.account.mobile.queue";
+    public static final String OVERDRAFT_MOBILE_QUEUE = "athena.lms.overdraft.mobile.queue";
 
     // ─── Routing key patterns ──────────────────────────────────────────────────
     public static final String LOAN_ROUTING_PATTERN        = "loan.#";
@@ -42,6 +44,8 @@ public class LmsRabbitMQConfig {
     public static final String LOAN_DISBURSED_KEY          = "loan.disbursed";
     public static final String LOAN_SUBMITTED_KEY          = "loan.application.submitted";
     public static final String ACCOUNT_CREDIT_KEY          = "account.credit.received";
+    public static final String TRANSFER_ROUTING_PATTERN    = "transfer.#";
+    public static final String CUSTOMER_ROUTING_PATTERN    = "customer.#";
 
     // ─── Mobile wallet routing patterns ────────────────────────────────────────
     public static final String MOBILE_ROUTING_PATTERN      = "mobile.#";
@@ -62,6 +66,8 @@ public class LmsRabbitMQConfig {
     @Bean public Queue loanMgmtQueue()     { return new Queue(LOAN_MGMT_QUEUE, true); }
     @Bean public Queue reportingQueue()    { return new Queue(REPORTING_QUEUE, true); }
     @Bean public Queue floatQueue()        { return new Queue(FLOAT_QUEUE, true); }
+    @Bean public Queue accountMobileQueue()  { return new Queue(ACCOUNT_MOBILE_QUEUE, true); }
+    @Bean public Queue overdraftMobileQueue() { return new Queue(OVERDRAFT_MOBILE_QUEUE, true); }
 
     // ─── Bindings ──────────────────────────────────────────────────────────────
     @Bean
@@ -114,12 +120,29 @@ public class LmsRabbitMQConfig {
     }
 
     @Bean
+    public Binding accountingTransferBinding(Queue accountingQueue, TopicExchange lmsExchange) {
+        return BindingBuilder.bind(accountingQueue).to(lmsExchange).with(TRANSFER_ROUTING_PATTERN);
+    }
+    @Bean
+    public Binding complianceCustomerBinding(Queue complianceQueue, TopicExchange lmsExchange) {
+        return BindingBuilder.bind(complianceQueue).to(lmsExchange).with(CUSTOMER_ROUTING_PATTERN);
+    }
+
+    @Bean
     public Binding reportingWildcardBinding(Queue reportingQueue, TopicExchange lmsExchange) {
         return BindingBuilder.bind(reportingQueue).to(lmsExchange).with(WILDCARD_PATTERN);
     }
     @Bean
     public Binding floatAccountCreditBinding(Queue floatQueue, TopicExchange lmsExchange) {
         return BindingBuilder.bind(floatQueue).to(lmsExchange).with(ACCOUNT_CREDIT_KEY);
+    }
+    @Bean
+    public Binding accountMobileBinding(Queue accountMobileQueue, TopicExchange lmsExchange) {
+        return BindingBuilder.bind(accountMobileQueue).to(lmsExchange).with(MOBILE_ROUTING_PATTERN);
+    }
+    @Bean
+    public Binding overdraftMobileBinding(Queue overdraftMobileQueue, TopicExchange lmsExchange) {
+        return BindingBuilder.bind(overdraftMobileQueue).to(lmsExchange).with(MOBILE_ROUTING_PATTERN);
     }
 
     // ─── Converters ────────────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ import com.athena.lms.account.dto.request.CreateAccountRequest;
 import com.athena.lms.account.dto.request.TransactionRequest;
 import com.athena.lms.account.dto.response.AccountResponse;
 import com.athena.lms.account.dto.response.BalanceResponse;
+import com.athena.lms.account.dto.response.StatementResponse;
 import com.athena.lms.account.dto.response.TransactionResponse;
 import com.athena.lms.account.entity.Account;
 import com.athena.lms.account.entity.AccountBalance;
@@ -27,6 +28,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.security.SecureRandom;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -255,6 +258,33 @@ public class AccountService {
         }
         account.setStatus(newStatus);
         return AccountResponse.from(accountRepository.save(account));
+    }
+
+    @Transactional(readOnly = true)
+    public StatementResponse getStatement(UUID accountId, String tenantId,
+            LocalDate from, LocalDate to, Pageable pageable) {
+        Account account = accountRepository.findByIdAndTenantId(accountId, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("Account", accountId));
+
+        LocalDateTime fromDt = from.atStartOfDay();
+        LocalDateTime toDt = to.plusDays(1).atStartOfDay();
+
+        BigDecimal openingBalance = transactionRepository.sumNetBalanceChangeBefore(accountId, fromDt);
+        BigDecimal closingBalance = transactionRepository.sumNetBalanceChangeBefore(accountId, toDt);
+
+        Page<AccountTransaction> txnPage = transactionRepository.findByAccountIdAndPeriod(
+                accountId, fromDt, toDt, pageable);
+
+        return StatementResponse.builder()
+                .accountNumber(account.getAccountNumber())
+                .customerName(account.getAccountName() != null ? account.getAccountName() : account.getCustomerId())
+                .currency(account.getCurrency())
+                .openingBalance(openingBalance)
+                .closingBalance(closingBalance)
+                .periodFrom(from)
+                .periodTo(to)
+                .transactions(PageResponse.from(txnPage.map(TransactionResponse::from)))
+                .build();
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────

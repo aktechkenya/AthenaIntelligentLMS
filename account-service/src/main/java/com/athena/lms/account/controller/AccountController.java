@@ -4,6 +4,7 @@ import com.athena.lms.account.dto.request.CreateAccountRequest;
 import com.athena.lms.account.dto.request.TransactionRequest;
 import com.athena.lms.account.dto.response.AccountResponse;
 import com.athena.lms.account.dto.response.BalanceResponse;
+import com.athena.lms.account.dto.response.StatementResponse;
 import com.athena.lms.account.dto.response.TransactionResponse;
 import com.athena.lms.account.service.AccountService;
 import com.athena.lms.common.auth.TenantContextHolder;
@@ -13,9 +14,11 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -94,6 +97,18 @@ public class AccountController {
             @RequestParam(defaultValue = "10") int count,
             HttpServletRequest httpRequest) {
         return accountService.getMiniStatement(id, getTenantId(httpRequest), count);
+    }
+
+    @GetMapping("/{id}/statement")
+    public StatementResponse getStatement(
+            @PathVariable UUID id,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size,
+            HttpServletRequest httpRequest) {
+        return accountService.getStatement(id, getTenantId(httpRequest), from, to,
+                PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "createdAt")));
     }
 
     @GetMapping("/search")

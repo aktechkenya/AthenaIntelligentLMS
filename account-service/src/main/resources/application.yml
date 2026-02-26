@@ -35,6 +35,12 @@ server:
 jwt:
   secret: ${JWT_SECRET}
 
+lms:
+  internal:
+    service-key: ${LMS_INTERNAL_SERVICE_KEY:}
+  product-service:
+    url: ${LMS_PRODUCT_SERVICE_URL:http://lms-product-service:8087}
+
 management:
   endpoints:
     web:

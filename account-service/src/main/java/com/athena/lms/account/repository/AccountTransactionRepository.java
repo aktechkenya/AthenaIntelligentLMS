@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -38,4 +39,28 @@ public interface AccountTransactionRepository extends JpaRepository<AccountTrans
           AND t.createdAt >= DATE_TRUNC('month', CURRENT_TIMESTAMP)
         """)
     BigDecimal sumMonthlyDebits(@Param("accountId") UUID accountId);
+
+    @Query("""
+        SELECT t FROM AccountTransaction t
+        WHERE t.accountId = :accountId
+          AND t.createdAt >= :fromDate
+          AND t.createdAt < :toDate
+        ORDER BY t.createdAt ASC
+        """)
+    Page<AccountTransaction> findByAccountIdAndPeriod(
+            @Param("accountId") UUID accountId,
+            @Param("fromDate") LocalDateTime fromDate,
+            @Param("toDate") LocalDateTime toDate,
+            Pageable pageable);
+
+    @Query("""
+        SELECT COALESCE(
+            SUM(CASE WHEN t.transactionType = 'CREDIT' THEN t.amount ELSE -t.amount END), 0)
+        FROM AccountTransaction t
+        WHERE t.accountId = :accountId
+          AND t.createdAt < :before
+        """)
+    BigDecimal sumNetBalanceChangeBefore(
+            @Param("accountId") UUID accountId,
+            @Param("before") LocalDateTime before);
 }
