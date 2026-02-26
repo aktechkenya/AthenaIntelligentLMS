@@ -14,18 +14,25 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Sheet, SheetContent,
 } from "@/components/ui/sheet";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Search, Download, Plus, LayoutGrid, List, Eye,
-  CheckCircle2, Clock, XCircle, FileText, AlertTriangle,
+  CheckCircle2, XCircle, FileText, AlertTriangle,
   User, Phone, Hash, Calendar, MapPin, Brain,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatKES } from "@/lib/format";
-import { useQuery } from "@tanstack/react-query";
-import { loanOriginationService, type LoanApplication as ApiLoanApplication } from "@/services/loanOriginationService";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
+import {
+  loanOriginationService,
+  type LoanApplication as ApiLoanApplication,
+} from "@/services/loanOriginationService";
 
 // ─── Local Types ─────────────────────────────────────
 type ApplicationStage = "received" | "kyc_pending" | "under_assessment" | "credit_committee" | "approved" | "rejected";
@@ -47,16 +54,14 @@ interface LoanApplication {
   channel: string;
   purpose: string;
   tenor: number;
-  bureauScore: number;
-  behaviouralScore: number;
-  incomeScore: number;
   compositeScore: number;
   compositeLabel: string;
-  dscr: number;
-  dti: string | number;
   aiRecommendation: string;
   aiConfidence: number;
   documents: { name: string; status: "verified" | "pending" | "missing" }[];
+  backendStatus: string;
+  approvedAmount?: number;
+  interestRate?: number;
 }
 
 const stageConfig: Record<ApplicationStage, { label: string; color: string }> = {
@@ -68,7 +73,6 @@ const stageConfig: Record<ApplicationStage, { label: string; color: string }> = 
   rejected: { label: "Rejected", color: "bg-destructive/10 text-destructive border-destructive/20" },
 };
 
-/** Map backend status to stage key */
 function statusToStage(status: string): ApplicationStage {
   const map: Record<string, ApplicationStage> = {
     DRAFT: "received",
@@ -83,7 +87,6 @@ function statusToStage(status: string): ApplicationStage {
   return map[status?.toUpperCase()] ?? "received";
 }
 
-/** Adapt a backend LoanApplication into the UI shape */
 function adaptApplication(app: ApiLoanApplication): LoanApplication {
   const stage = statusToStage(app.status);
   return {
@@ -105,14 +108,12 @@ function adaptApplication(app: ApiLoanApplication): LoanApplication {
     purpose: app.purpose ?? "—",
     compositeScore: app.creditScore ?? 650,
     compositeLabel: "Standard",
-    bureauScore: 0,
-    behaviouralScore: 0,
-    incomeScore: 0,
-    dscr: 0,
-    dti: "0",
     aiRecommendation: "APPROVAL",
     aiConfidence: 80,
     documents: [],
+    backendStatus: app.status,
+    approvedAmount: app.approvedAmount,
+    interestRate: app.interestRate,
   };
 }
 
@@ -124,10 +125,11 @@ const LoansPage = () => {
   const [stageFilter, setStageFilter] = useState("all");
   const [selectedApp, setSelectedApp] = useState<LoanApplication | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [newAppOpen, setNewAppOpen] = useState(false);
 
   const { data: apiPage, isLoading } = useQuery({
     queryKey: ["loan-applications", "list"],
-    queryFn: () => loanOriginationService.listApplications(0, 100),
+    queryFn: () => loanOriginationService.listApplications(0, 200),
     staleTime: 60_000,
     retry: false,
   });
@@ -205,7 +207,7 @@ const LoansPage = () => {
             <Button variant="outline" size="sm" className="text-xs font-sans">
               <Download className="mr-1.5 h-3.5 w-3.5" /> Export
             </Button>
-            <Button size="sm" className="text-xs font-sans bg-primary hover:bg-primary/90">
+            <Button size="sm" className="text-xs font-sans bg-primary hover:bg-primary/90" onClick={() => setNewAppOpen(true)}>
               <Plus className="mr-1.5 h-3.5 w-3.5" /> New Application
             </Button>
           </div>
@@ -274,9 +276,9 @@ const LoansPage = () => {
                               }}>
                                 <span className="text-[7px] font-mono font-bold">{Math.floor(app.riskScore / 10)}</span>
                               </div>
-                              <span>{app.daysInStage}d in stage</span>
+                              <span>{app.backendStatus}</span>
                             </div>
-                            <span>{app.analyst.split(" ")[0]}</span>
+                            <span>{app.date}</span>
                           </div>
                         </motion.div>
                       ))}
@@ -313,13 +315,13 @@ const LoansPage = () => {
                         <TableHead className="text-[10px] uppercase tracking-wider font-sans text-right">Amount</TableHead>
                         <TableHead className="text-[10px] uppercase tracking-wider font-sans">Score</TableHead>
                         <TableHead className="text-[10px] uppercase tracking-wider font-sans">Stage</TableHead>
-                        <TableHead className="text-[10px] uppercase tracking-wider font-sans">Analyst</TableHead>
+                        <TableHead className="text-[10px] uppercase tracking-wider font-sans">Status</TableHead>
                         <TableHead className="text-[10px] uppercase tracking-wider font-sans">Date</TableHead>
                         <TableHead className="text-[10px] uppercase tracking-wider font-sans">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredApps.slice(0, 25).map((app) => (
+                      {filteredApps.slice(0, 50).map((app) => (
                         <TableRow key={app.id} className="table-row-hover cursor-pointer" onClick={() => openDetail(app)}>
                           <TableCell className="text-xs font-mono font-medium">{app.id}</TableCell>
                           <TableCell>
@@ -344,7 +346,7 @@ const LoansPage = () => {
                               {stageConfig[app.stage].label}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-xs font-sans text-muted-foreground">{app.analyst}</TableCell>
+                          <TableCell className="text-xs font-sans text-muted-foreground">{app.backendStatus}</TableCell>
                           <TableCell className="text-xs font-sans text-muted-foreground">{app.date}</TableCell>
                           <TableCell>
                             <Button variant="ghost" size="sm" className="h-7 text-[10px] font-sans">
@@ -356,11 +358,7 @@ const LoansPage = () => {
                     </TableBody>
                   </Table>
                   <div className="flex items-center justify-between px-4 py-3 border-t text-xs text-muted-foreground font-sans">
-                    <span>Showing {Math.min(25, filteredApps.length)} of {filteredApps.length} applications</span>
-                    <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm" className="h-7 text-[10px]" disabled>Previous</Button>
-                      <Button variant="outline" size="sm" className="h-7 text-[10px]">Next</Button>
-                    </div>
+                    <span>Showing {Math.min(50, filteredApps.length)} of {filteredApps.length} applications</span>
                   </div>
                 </>
               )}
@@ -369,19 +367,140 @@ const LoansPage = () => {
         )}
       </div>
 
-      {/* ─── Application Detail Drawer ─── */}
+      {/* Application Detail Drawer */}
       <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
         <SheetContent className="w-full sm:max-w-[720px] overflow-y-auto p-0">
-          {selectedApp && <ApplicationDetail app={selectedApp} onClose={() => setDrawerOpen(false)} />}
+          {selectedApp && (
+            <ApplicationDetail
+              app={selectedApp}
+              onClose={() => setDrawerOpen(false)}
+            />
+          )}
         </SheetContent>
       </Sheet>
+
+      {/* New Application Dialog */}
+      <NewApplicationDialog open={newAppOpen} onOpenChange={setNewAppOpen} />
     </DashboardLayout>
   );
 };
 
+// ─── New Application Dialog ───
+function NewApplicationDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [customerId, setCustomerId] = useState("");
+  const [productId, setProductId] = useState("");
+  const [amount, setAmount] = useState("");
+  const [tenor, setTenor] = useState("");
+  const [purpose, setPurpose] = useState("");
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      loanOriginationService.createApplication({
+        customerId,
+        productId,
+        requestedAmount: parseFloat(amount),
+        tenorMonths: parseInt(tenor),
+        purpose: purpose || undefined,
+        currency: "KES",
+      }),
+    onSuccess: (app) => {
+      toast({ title: "Application Created", description: `${app.id} created and ready for submission` });
+      queryClient.invalidateQueries({ queryKey: ["loan-applications"] });
+      onOpenChange(false);
+      setCustomerId(""); setProductId(""); setAmount(""); setTenor(""); setPurpose("");
+    },
+    onError: (err: Error) => {
+      toast({ title: "Create Failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="font-heading">New Loan Application</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div>
+            <label className="text-xs font-sans font-medium">Customer ID</label>
+            <Input className="mt-1 text-xs font-mono" placeholder="e.g. CUST-001" value={customerId} onChange={e => setCustomerId(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs font-sans font-medium">Product ID</label>
+            <Input className="mt-1 text-xs font-mono" placeholder="Product UUID" value={productId} onChange={e => setProductId(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-sans font-medium">Amount (KES)</label>
+              <Input type="number" className="mt-1 text-xs font-mono" placeholder="50000" value={amount} onChange={e => setAmount(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-xs font-sans font-medium">Tenor (months)</label>
+              <Input type="number" className="mt-1 text-xs font-mono" placeholder="12" value={tenor} onChange={e => setTenor(e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-sans font-medium">Purpose</label>
+            <Input className="mt-1 text-xs font-sans" placeholder="Working capital" value={purpose} onChange={e => setPurpose(e.target.value)} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} className="text-xs font-sans">Cancel</Button>
+          <Button
+            size="sm"
+            onClick={() => createMutation.mutate()}
+            disabled={!customerId || !productId || !amount || !tenor || createMutation.isPending}
+            className="text-xs font-sans"
+          >
+            {createMutation.isPending ? "Creating..." : "Create Application"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Application Detail Component ───
 function ApplicationDetail({ app, onClose }: { app: LoanApplication; onClose: () => void }) {
   const [activeTab, setActiveTab] = useState("summary");
+  const [approveAmount, setApproveAmount] = useState(app.amount.toString());
+  const [approveRate, setApproveRate] = useState(app.interestRate?.toString() ?? "15");
+  const [declineNotes, setDeclineNotes] = useState("");
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const canApprove = !["APPROVED", "DISBURSED", "REJECTED", "CANCELLED"].includes(app.backendStatus);
+
+  const approveMutation = useMutation({
+    mutationFn: () =>
+      loanOriginationService.approveApplication(app.id, {
+        approvedAmount: parseFloat(approveAmount),
+        interestRate: parseFloat(approveRate),
+      }),
+    onSuccess: () => {
+      toast({ title: "Application Approved", description: `${app.id} approved for ${formatKES(parseFloat(approveAmount))}` });
+      queryClient.invalidateQueries({ queryKey: ["loan-applications"] });
+      onClose();
+    },
+    onError: (err: Error) => {
+      toast({ title: "Approval Failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const declineMutation = useMutation({
+    mutationFn: () =>
+      loanOriginationService.rejectApplication(app.id, { reviewNotes: declineNotes }),
+    onSuccess: () => {
+      toast({ title: "Application Declined", description: `${app.id} has been rejected` });
+      queryClient.invalidateQueries({ queryKey: ["loan-applications"] });
+      onClose();
+    },
+    onError: (err: Error) => {
+      toast({ title: "Decline Failed", description: err.message, variant: "destructive" });
+    },
+  });
 
   const stageSteps = ["received", "kyc_pending", "under_assessment", "credit_committee", "approved"];
   const currentStepIdx = stageSteps.indexOf(app.stage);
@@ -402,10 +521,10 @@ function ApplicationDetail({ app, onClose }: { app: LoanApplication; onClose: ()
               <Badge variant="outline" className={`text-[10px] font-sans font-semibold ${stageConfig[app.stage].color}`}>
                 {stageConfig[app.stage].label}
               </Badge>
+              <Badge variant="outline" className="text-[10px] font-mono">{app.backendStatus}</Badge>
             </div>
           </div>
         </div>
-        {/* Stage Progress */}
         <div className="space-y-1.5">
           <Progress value={progressPct} className="h-1.5" />
           <div className="flex justify-between text-[9px] text-muted-foreground font-sans">
@@ -467,7 +586,7 @@ function ApplicationDetail({ app, onClose }: { app: LoanApplication; onClose: ()
             <Card className="p-4">
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <p className="text-[10px] text-muted-foreground font-sans uppercase tracking-wider">AthenaScore™</p>
+                  <p className="text-[10px] text-muted-foreground font-sans uppercase tracking-wider">AthenaScore</p>
                   <p className="text-3xl font-mono font-bold mt-1">{app.compositeScore}</p>
                   <Badge variant="outline" className={`text-[10px] mt-1 ${
                     app.compositeScore > 750 ? "bg-success/15 text-success border-success/30" :
@@ -504,7 +623,7 @@ function ApplicationDetail({ app, onClose }: { app: LoanApplication; onClose: ()
                       {doc.status === "verified" ? (
                         <CheckCircle2 className="h-4 w-4 text-success" />
                       ) : doc.status === "pending" ? (
-                        <Clock className="h-4 w-4 text-warning" />
+                        <AlertTriangle className="h-4 w-4 text-warning" />
                       ) : (
                         <XCircle className="h-4 w-4 text-destructive" />
                       )}
@@ -520,24 +639,71 @@ function ApplicationDetail({ app, onClose }: { app: LoanApplication; onClose: ()
           </TabsContent>
 
           <TabsContent value="decision" className="mt-0 space-y-4">
-            <div className="grid grid-cols-3 gap-3">
-              <Button className="bg-success hover:bg-success/90 text-white font-sans text-xs h-10">
-                <CheckCircle2 className="h-4 w-4 mr-1.5" /> Approve
-              </Button>
-              <Button variant="destructive" className="font-sans text-xs h-10">
-                <XCircle className="h-4 w-4 mr-1.5" /> Decline
-              </Button>
-              <Button variant="outline" className="font-sans text-xs h-10">
-                <AlertTriangle className="h-4 w-4 mr-1.5" /> Request Info
-              </Button>
-            </div>
-            <Card className="p-4 space-y-3">
-              <div>
-                <label className="text-[10px] text-muted-foreground font-sans uppercase tracking-wider">Conditions Precedent</label>
-                <Textarea placeholder="Enter any conditions..." className="mt-1 text-xs font-sans" rows={3} />
+            {!canApprove ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <p className="text-sm font-medium">No actions available</p>
+                <p className="text-xs mt-1">This application is already {app.backendStatus.toLowerCase()}.</p>
               </div>
-              <Button className="w-full font-sans text-xs">Submit Decision</Button>
-            </Card>
+            ) : (
+              <>
+                {/* Approve Section */}
+                <Card className="p-4 space-y-3 border-l-4 border-l-success">
+                  <p className="text-xs font-sans font-semibold text-success">Approve Application</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] text-muted-foreground font-sans uppercase tracking-wider">Approved Amount (KES)</label>
+                      <Input
+                        type="number"
+                        className="mt-1 text-xs font-mono"
+                        value={approveAmount}
+                        onChange={e => setApproveAmount(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-muted-foreground font-sans uppercase tracking-wider">Interest Rate (%)</label>
+                      <Input
+                        type="number"
+                        className="mt-1 text-xs font-mono"
+                        value={approveRate}
+                        onChange={e => setApproveRate(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    className="w-full bg-success hover:bg-success/90 text-white font-sans text-xs"
+                    onClick={() => approveMutation.mutate()}
+                    disabled={approveMutation.isPending}
+                  >
+                    <CheckCircle2 className="h-4 w-4 mr-1.5" />
+                    {approveMutation.isPending ? "Approving..." : "Approve"}
+                  </Button>
+                </Card>
+
+                {/* Decline Section */}
+                <Card className="p-4 space-y-3 border-l-4 border-l-destructive">
+                  <p className="text-xs font-sans font-semibold text-destructive">Decline Application</p>
+                  <div>
+                    <label className="text-[10px] text-muted-foreground font-sans uppercase tracking-wider">Reason / Notes</label>
+                    <Textarea
+                      placeholder="Enter decline reason..."
+                      className="mt-1 text-xs font-sans"
+                      rows={3}
+                      value={declineNotes}
+                      onChange={e => setDeclineNotes(e.target.value)}
+                    />
+                  </div>
+                  <Button
+                    variant="destructive"
+                    className="w-full font-sans text-xs"
+                    onClick={() => declineMutation.mutate()}
+                    disabled={declineMutation.isPending}
+                  >
+                    <XCircle className="h-4 w-4 mr-1.5" />
+                    {declineMutation.isPending ? "Declining..." : "Decline"}
+                  </Button>
+                </Card>
+              </>
+            )}
           </TabsContent>
         </div>
       </Tabs>

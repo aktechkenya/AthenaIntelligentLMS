@@ -1,81 +1,169 @@
+import { useState } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Search } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table";
+import { Search, ChevronLeft, ChevronRight, Receipt } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { accountingService, type JournalEntry } from "@/services/accountingService";
+import { formatKESFull } from "@/lib/format";
 
-const transactions = [
-  { id: "TXN-98421", date: "Feb 24, 14:32", type: "Disbursement", from: "Pool Account", to: "GreenTech Solutions", amount: "$250,000.00", status: "Completed" },
-  { id: "TXN-98420", date: "Feb 24, 13:15", type: "Repayment", from: "Maria Fernandez", to: "Loan LN-04518", amount: "$400.00", status: "Completed" },
-  { id: "TXN-98419", date: "Feb 24, 11:45", type: "Fee", from: "Peter Ochieng", to: "Fee Income", amount: "$25.00", status: "Completed" },
-  { id: "TXN-98418", date: "Feb 24, 10:22", type: "Transfer", from: "Sarah Kimani", to: "External Bank", amount: "$2,000.00", status: "Pending" },
-  { id: "TXN-98417", date: "Feb 24, 09:10", type: "Repayment", from: "Acme Industries", to: "Loan LN-04510", amount: "$8,500.00", status: "Completed" },
-  { id: "TXN-98416", date: "Feb 23, 23:59", type: "Interest Accrual", from: "System", to: "Multiple Accounts", amount: "$12,450.00", status: "Completed" },
-];
+function txnType(reference: string): { label: string; cls: string } {
+  if (reference?.startsWith("DISB-")) return { label: "Disbursement", cls: "bg-info/15 text-info border-info/30" };
+  if (reference?.startsWith("RPMT-")) return { label: "Repayment", cls: "bg-success/15 text-success border-success/30" };
+  if (reference?.startsWith("FEE-")) return { label: "Fee", cls: "bg-warning/15 text-warning border-warning/30" };
+  if (reference?.startsWith("FLOAT-")) return { label: "Float", cls: "bg-accent/15 text-accent border-accent/30" };
+  return { label: "Journal", cls: "bg-muted text-muted-foreground border-border" };
+}
 
-const typeColors: Record<string, string> = {
-  Disbursement: "bg-info/15 text-info border-info/30",
-  Repayment: "bg-success/15 text-success border-success/30",
-  Fee: "bg-accent/15 text-accent-foreground border-accent/30",
-  Transfer: "bg-primary/10 text-primary border-primary/20",
-  "Interest Accrual": "bg-muted text-muted-foreground",
-};
+const TransactionsPage = () => {
+  const [page, setPage] = useState(0);
+  const [search, setSearch] = useState("");
+  const pageSize = 50;
 
-const TransactionsPage = () => (
-  <DashboardLayout title="Transactions" subtitle="Real-time transaction processing & history">
-    <div className="space-y-4 animate-fade-in">
-      <div className="relative w-full sm:w-64">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-        <Input placeholder="Search transactions..." className="pl-8 h-9 text-xs" />
+  const { data: apiPage, isLoading } = useQuery({
+    queryKey: ["journal-entries", page],
+    queryFn: () => accountingService.listJournalEntries(page, pageSize),
+    staleTime: 60_000,
+    retry: false,
+  });
+
+  const entries: JournalEntry[] = apiPage?.content ?? [];
+  const totalElements = apiPage?.totalElements ?? 0;
+  const totalPages = apiPage?.totalPages ?? 1;
+
+  const filtered = search
+    ? entries.filter(
+        (e) =>
+          e.reference?.toLowerCase().includes(search.toLowerCase()) ||
+          e.description?.toLowerCase().includes(search.toLowerCase())
+      )
+    : entries;
+
+  return (
+    <DashboardLayout
+      title="Transactions"
+      subtitle="General ledger journal entries"
+      breadcrumbs={[{ label: "Home", href: "/" }, { label: "Finance" }, { label: "Transactions" }]}
+    >
+      <div className="space-y-4 animate-fade-in">
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-muted-foreground font-sans">
+            {isLoading ? "Loading..." : `${totalElements.toLocaleString()} journal entries`}
+          </div>
+          <div className="relative w-72">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              placeholder="Search by reference or description..."
+              className="pl-8 h-9 text-xs font-sans"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Receipt className="h-4 w-4" /> Journal Entries
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {isLoading ? (
+              <div className="p-4 space-y-2">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <Skeleton key={i} className="h-10 w-full" />
+                ))}
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
+                <p className="text-sm font-medium">No journal entries found</p>
+                <p className="text-xs mt-1">
+                  {search ? "No entries match your search." : "No accounting entries have been recorded yet."}
+                </p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="text-[10px] uppercase tracking-wider font-sans">Reference</TableHead>
+                    <TableHead className="text-[10px] uppercase tracking-wider font-sans">Date</TableHead>
+                    <TableHead className="text-[10px] uppercase tracking-wider font-sans">Type</TableHead>
+                    <TableHead className="text-[10px] uppercase tracking-wider font-sans">Description</TableHead>
+                    <TableHead className="text-[10px] uppercase tracking-wider font-sans text-right">Debit</TableHead>
+                    <TableHead className="text-[10px] uppercase tracking-wider font-sans text-right">Credit</TableHead>
+                    <TableHead className="text-[10px] uppercase tracking-wider font-sans">Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.map((entry) => {
+                    const t = txnType(entry.reference);
+                    return (
+                      <TableRow key={entry.id} className="table-row-hover">
+                        <TableCell className="text-xs font-mono font-medium">{entry.reference}</TableCell>
+                        <TableCell className="text-xs font-sans">{entry.entryDate?.split("T")[0] ?? "—"}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={`text-[9px] font-sans ${t.cls}`}>{t.label}</Badge>
+                        </TableCell>
+                        <TableCell className="text-xs font-sans text-muted-foreground max-w-[200px] truncate">
+                          {entry.description}
+                        </TableCell>
+                        <TableCell className="text-xs font-mono text-right">
+                          {entry.totalDebit > 0 ? formatKESFull(entry.totalDebit) : "—"}
+                        </TableCell>
+                        <TableCell className="text-xs font-mono text-right">
+                          {entry.totalCredit > 0 ? formatKESFull(entry.totalCredit) : "—"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="text-[9px] font-sans bg-success/15 text-success border-success/30">
+                            {entry.status ?? "POSTED"}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Pagination */}
+        {!isLoading && totalPages > 1 && (
+          <div className="flex items-center justify-between text-xs text-muted-foreground font-sans">
+            <span>
+              Page {page + 1} of {totalPages} ({totalElements.toLocaleString()} entries)
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-[10px]"
+                disabled={page === 0}
+                onClick={() => setPage((p) => p - 1)}
+              >
+                <ChevronLeft className="h-3 w-3 mr-1" /> Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-[10px]"
+                disabled={page >= totalPages - 1}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Next <ChevronRight className="h-3 w-3 ml-1" />
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
-      <Card>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead className="text-[10px] uppercase tracking-wider">TXN ID</TableHead>
-                <TableHead className="text-[10px] uppercase tracking-wider">Date</TableHead>
-                <TableHead className="text-[10px] uppercase tracking-wider">Type</TableHead>
-                <TableHead className="text-[10px] uppercase tracking-wider">From</TableHead>
-                <TableHead className="text-[10px] uppercase tracking-wider">To</TableHead>
-                <TableHead className="text-[10px] uppercase tracking-wider text-right">Amount</TableHead>
-                <TableHead className="text-[10px] uppercase tracking-wider">Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {transactions.map((txn) => (
-                <TableRow key={txn.id} className="table-row-hover cursor-pointer">
-                  <TableCell className="text-xs font-mono font-medium">{txn.id}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{txn.date}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className={`text-[10px] font-semibold ${typeColors[txn.type] || ""}`}>
-                      {txn.type}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-xs">{txn.from}</TableCell>
-                  <TableCell className="text-xs">{txn.to}</TableCell>
-                  <TableCell className="text-xs font-medium text-right">{txn.amount}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className={`text-[10px] font-semibold ${txn.status === "Completed" ? "bg-success/15 text-success border-success/30" : "bg-warning/15 text-warning border-warning/30"}`}>
-                      {txn.status}
-                    </Badge>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-    </div>
-  </DashboardLayout>
-);
+    </DashboardLayout>
+  );
+};
 
 export default TransactionsPage;

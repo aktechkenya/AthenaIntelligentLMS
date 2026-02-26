@@ -46,7 +46,7 @@ export interface Repayment {
 
 export interface RepaymentRequest {
   amount: number;
-  paymentDate: string;
+  paymentDate?: string;
   paymentMethod?: string;
   reference?: string;
 }
