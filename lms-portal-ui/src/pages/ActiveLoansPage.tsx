@@ -186,7 +186,9 @@ const ActiveLoansPage = () => {
             ) : filtered.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
                 <p className="text-sm font-medium">No active loans found</p>
-                <p className="text-xs mt-1">No loan records returned from the backend.</p>
+                <p className="text-xs mt-1">
+                  No loan records returned from the backend.
+                </p>
               </div>
             ) : (
               <Table>

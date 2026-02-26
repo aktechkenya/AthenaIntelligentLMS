@@ -68,7 +68,7 @@ public class LmsJwtAuthenticationFilter extends OncePerRequestFilter {
                                 .map(r -> new SimpleGrantedAuthority("ROLE_" + r))
                                 .collect(Collectors.toList());
 
-                        var authToken = new UsernamePasswordAuthenticationToken(username, null, authorities);
+                        var authToken = new UsernamePasswordAuthenticationToken(username, tenantId, authorities);
                         authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                         SecurityContextHolder.getContext().setAuthentication(authToken);
 
