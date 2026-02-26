@@ -32,6 +32,10 @@ server:
 jwt:
   secret: ${JWT_SECRET}
 
+lms:
+  internal:
+    service-key: ${LMS_INTERNAL_SERVICE_KEY:}
+
 athena:
   scoring:
     url: ${ATHENA_SCORING_URL:http://localhost:8096}

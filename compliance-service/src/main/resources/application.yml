@@ -29,6 +29,10 @@ server:
   port: 8094
 jwt:
   secret: ${JWT_SECRET}
+
+lms:
+  internal:
+    service-key: ${LMS_INTERNAL_SERVICE_KEY:}
 management:
   endpoints:
     web:

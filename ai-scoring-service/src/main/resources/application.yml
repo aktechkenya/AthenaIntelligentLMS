@@ -29,6 +29,10 @@ server:
   port: 8096
 jwt:
   secret: ${JWT_SECRET}
+
+lms:
+  internal:
+    service-key: ${LMS_INTERNAL_SERVICE_KEY:}
 athena:
   scoring:
     url: ${ATHENA_SCORING_URL:http://athena-python-service:8001}

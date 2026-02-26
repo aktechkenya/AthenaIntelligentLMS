@@ -36,7 +36,19 @@ public class JwtUtil {
     public Long extractCustomerId(String token) {
         Claims claims = extractAllClaims(token);
         Object cid = claims.get("customerId");
-        return cid != null ? Long.valueOf(cid.toString()) : null;
+        if (cid == null) return null;
+        try {
+            return Long.valueOf(cid.toString());
+        } catch (NumberFormatException e) {
+            // Mobile wallet tokens use string customer IDs (e.g. "MOB-C88EE444")
+            return null;
+        }
+    }
+
+    public String extractCustomerIdAsString(String token) {
+        Claims claims = extractAllClaims(token);
+        Object cid = claims.get("customerId");
+        return cid != null ? cid.toString() : null;
     }
 
     public String extractTenantId(String token) {

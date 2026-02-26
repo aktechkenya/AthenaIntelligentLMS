@@ -82,10 +82,14 @@ public class LmsJwtAuthenticationFilter extends OncePerRequestFilter {
                         // Set userId in MDC for log correlation
                         MDC.put("userId", username);
 
-                        // Propagate customerId for downstream use
-                        Long customerId = jwtUtil.extractCustomerId(token);
-                        if (customerId != null) {
-                            request.setAttribute("customerId", customerId);
+                        // Propagate customerId for downstream use (supports both Long and String IDs)
+                        String customerIdStr = jwtUtil.extractCustomerIdAsString(token);
+                        if (customerIdStr != null) {
+                            request.setAttribute("customerIdStr", customerIdStr);
+                            Long customerId = jwtUtil.extractCustomerId(token);
+                            if (customerId != null) {
+                                request.setAttribute("customerId", customerId);
+                            }
                         }
                     }
                 }
