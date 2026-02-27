@@ -18,9 +18,12 @@ export interface MediaFile {
 }
 
 export interface MediaStats {
-  totalFiles: number;
-  totalSizeBytes: number;
-  byCategory: Record<string, number>;
+  totalDocuments: number;
+  totalSpace: number;
+  usedSpace: number;
+  freeSpace: number;
+  usedPercentage: number;
+  documentsByType: Record<string, number>;
 }
 
 export const mediaService = {
@@ -47,6 +50,15 @@ export const mediaService = {
     });
     if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
     return res.json();
+  },
+
+  async listAll(category?: string, status?: string): Promise<MediaFile[]> {
+    const params = new URLSearchParams();
+    if (category) params.set("category", category);
+    if (status) params.set("status", status);
+    const qs = params.toString();
+    const result = await apiGet<MediaFile[]>(`${BASE}${qs ? `?${qs}` : ""}`);
+    return result.data ?? [];
   },
 
   async listByCustomer(customerId: string): Promise<MediaFile[]> {

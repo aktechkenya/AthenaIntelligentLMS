@@ -224,18 +224,85 @@ public class AccountingService {
 
     @Transactional
     public void postRepayment(String tenantId, String paymentId, BigDecimal amount, Map<String, Object> payload) {
-        // DR Cash (1000) / CR Loans Receivable (1100) for principal portion
-        UUID drAccount = resolveAccountId(tenantId, "1000");
-        UUID crAccount = resolveAccountId(tenantId, "1100");
+        // Extract breakdown from event payload
+        BigDecimal principal = getBigDecimal(payload, "principalApplied");
+        BigDecimal interest  = getBigDecimal(payload, "interestApplied");
+        BigDecimal fees      = getBigDecimal(payload, "feeApplied");
+        BigDecimal penalties = getBigDecimal(payload, "penaltyApplied");
 
-        JournalEntry entry = buildSystemEntry(tenantId, "RPMT-" + paymentId,
-            "Loan repayment payment " + paymentId,
-            "payment.completed", paymentId,
-            drAccount, crAccount, amount);
+        // Fallback: if breakdown is missing or doesn't sum to amount, treat full amount as principal
+        BigDecimal breakdownTotal = principal.add(interest).add(fees).add(penalties);
+        if (breakdownTotal.compareTo(BigDecimal.ZERO) == 0 || breakdownTotal.compareTo(amount) != 0) {
+            principal = amount;
+            interest  = BigDecimal.ZERO;
+            fees      = BigDecimal.ZERO;
+            penalties = BigDecimal.ZERO;
+        }
+
+        UUID cashAccount  = resolveAccountId(tenantId, "1000");
+        UUID loansAccount = resolveAccountId(tenantId, "1100");
+
+        JournalEntry entry = JournalEntry.builder()
+            .tenantId(tenantId)
+            .reference("RPMT-" + paymentId)
+            .description("Loan repayment payment " + paymentId)
+            .entryDate(LocalDate.now())
+            .status(EntryStatus.POSTED)
+            .sourceEvent("payment.completed")
+            .sourceId(paymentId)
+            .totalDebit(amount)
+            .totalCredit(amount)
+            .postedBy("system")
+            .build();
+
+        // Line 1: DR Cash — total received
+        entry.getLines().add(JournalLine.builder()
+            .entry(entry).tenantId(tenantId).accountId(cashAccount)
+            .lineNo(1).debitAmount(amount).creditAmount(BigDecimal.ZERO).currency("KES")
+            .build());
+
+        int lineNo = 2;
+
+        // Line 2: CR Loans Receivable — principal portion
+        if (principal.compareTo(BigDecimal.ZERO) > 0) {
+            entry.getLines().add(JournalLine.builder()
+                .entry(entry).tenantId(tenantId).accountId(loansAccount)
+                .lineNo(lineNo++).debitAmount(BigDecimal.ZERO).creditAmount(principal).currency("KES")
+                .build());
+        }
+
+        // Line 3: CR Interest Income (4000)
+        if (interest.compareTo(BigDecimal.ZERO) > 0) {
+            UUID interestAccount = resolveAccountId(tenantId, "4000");
+            entry.getLines().add(JournalLine.builder()
+                .entry(entry).tenantId(tenantId).accountId(interestAccount)
+                .lineNo(lineNo++).debitAmount(BigDecimal.ZERO).creditAmount(interest).currency("KES")
+                .build());
+        }
+
+        // Line 4: CR Fee Income (4100)
+        if (fees.compareTo(BigDecimal.ZERO) > 0) {
+            UUID feeAccount = resolveAccountId(tenantId, "4100");
+            entry.getLines().add(JournalLine.builder()
+                .entry(entry).tenantId(tenantId).accountId(feeAccount)
+                .lineNo(lineNo++).debitAmount(BigDecimal.ZERO).creditAmount(fees).currency("KES")
+                .build());
+        }
+
+        // Line 5: CR Penalty Income (4200)
+        if (penalties.compareTo(BigDecimal.ZERO) > 0) {
+            UUID penaltyAccount = resolveAccountId(tenantId, "4200");
+            entry.getLines().add(JournalLine.builder()
+                .entry(entry).tenantId(tenantId).accountId(penaltyAccount)
+                .lineNo(lineNo).debitAmount(BigDecimal.ZERO).creditAmount(penalties).currency("KES")
+                .build());
+        }
+
         entryRepo.save(entry);
         updateAccountBalances(entry);
         eventPublisher.publishJournalPosted(entry);
-        log.info("Posted repayment journal for payment [{}] amount [{}]", paymentId, amount);
+        log.info("Posted repayment journal for payment [{}] amount [{}] (principal={}, interest={}, fees={}, penalties={})",
+            paymentId, amount, principal, interest, fees, penalties);
     }
 
     @Transactional
@@ -254,6 +321,12 @@ public class AccountingService {
     }
 
     // ─── Private helpers ──────────────────────────────────────────────────────────
+
+    private BigDecimal getBigDecimal(Map<String, Object> m, String key) {
+        Object v = m == null ? null : m.get(key);
+        if (v == null) return BigDecimal.ZERO;
+        try { return new BigDecimal(v.toString()); } catch (Exception e) { return BigDecimal.ZERO; }
+    }
 
     private UUID resolveAccountId(String tenantId, String code) {
         return coaRepo.findByCodeAndTenantIdIn(code, List.of(tenantId, "system"))

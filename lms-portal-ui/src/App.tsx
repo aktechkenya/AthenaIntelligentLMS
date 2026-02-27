@@ -50,6 +50,7 @@ import CountryConfigPage from "./pages/CountryConfigPage";
 import CurrenciesFxPage from "./pages/CurrenciesFxPage";
 import TellerSessionPage from "./pages/TellerSessionPage";
 import ConsolidatedReportsPage from "./pages/ConsolidatedReportsPage";
+import DocumentsPage from "./pages/DocumentsPage";
 
 const queryClient = new QueryClient();
 
@@ -133,6 +134,7 @@ const AppRoutes = () => (
       <Route path="/currencies" element={<P><CurrenciesFxPage /></P>} />
       <Route path="/teller" element={<P><TellerSessionPage /></P>} />
       <Route path="/consolidated-reports" element={<P><ConsolidatedReportsPage /></P>} />
+      <Route path="/documents" element={<P><DocumentsPage /></P>} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   </>

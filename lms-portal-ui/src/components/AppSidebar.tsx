@@ -42,6 +42,7 @@ import {
   Landmark,
   ClipboardList,
   LogOut,
+  FolderOpen,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -119,7 +120,8 @@ const adminNav = [
   { title: "Users & Roles", url: "/users", icon: UserCog },
   { title: "System Configuration", url: "/settings", icon: Settings },
   { title: "Integrations & API", url: "/integrations", icon: Link },
-  { title: "Notification Templates", url: "/notifications", icon: Bell },
+  { title: "Notifications", url: "/notifications", icon: Bell },
+  { title: "Document Store", url: "/documents", icon: FolderOpen },
 ];
 
 const organisationNav = [
