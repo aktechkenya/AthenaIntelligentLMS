@@ -1,13 +1,17 @@
+import { useRef, useState } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Shield, AlertTriangle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Shield, AlertTriangle, Upload, FileText, Download, Trash2 } from "lucide-react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { complianceService, type ComplianceAlert } from "@/services/complianceService";
+import { mediaService, type MediaFile } from "@/services/mediaService";
 
 const riskColor: Record<string, string> = {
   HIGH: "bg-destructive/10 text-destructive border-destructive/20",
@@ -16,12 +20,51 @@ const riskColor: Record<string, string> = {
 };
 
 const CompliancePage = () => {
+  const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [docCustomerId, setDocCustomerId] = useState("CUST-001");
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
   const { data: page, isLoading, isError } = useQuery({
     queryKey: ["compliance", "alerts"],
     queryFn: () => complianceService.listAlerts(0, 50),
     staleTime: 60_000,
     retry: false,
   });
+
+  const { data: docs = [], refetch: refetchDocs } = useQuery({
+    queryKey: ["media", "customer", docCustomerId],
+    queryFn: () => mediaService.listByCustomer(docCustomerId),
+    staleTime: 30_000,
+    retry: false,
+    enabled: !!docCustomerId,
+  });
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      await mediaService.upload(file, docCustomerId, undefined, "CUSTOMER_DOCUMENT");
+      refetchDocs();
+    } catch (err: unknown) {
+      setUploadError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleDelete = async (mediaId: string) => {
+    try {
+      await mediaService.deleteFile(mediaId);
+      refetchDocs();
+    } catch {
+      // silent — doc may already be deleted
+    }
+  };
 
   const alerts: ComplianceAlert[] = page?.content ?? [];
 
@@ -138,6 +181,103 @@ const CompliancePage = () => {
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {alert.checkedAt ?? alert.createdAt ?? "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Customer Documents */}
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <FileText className="h-4 w-4" /> Customer Documents
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                <Input
+                  className="h-7 text-xs w-40"
+                  placeholder="Customer ID"
+                  value={docCustomerId}
+                  onChange={(e) => setDocCustomerId(e.target.value)}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-xs gap-1.5 h-7"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  {uploading ? "Uploading…" : "Upload Document"}
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={handleUpload}
+                  accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                />
+              </div>
+            </div>
+            {uploadError && (
+              <p className="text-xs text-destructive mt-1">{uploadError}</p>
+            )}
+          </CardHeader>
+          <CardContent>
+            {docs.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-3 text-center">
+                No documents on file for {docCustomerId}. Upload a customer document above.
+              </p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-xs">File Name</TableHead>
+                    <TableHead className="text-xs">Category</TableHead>
+                    <TableHead className="text-xs">Size</TableHead>
+                    <TableHead className="text-xs">Uploaded</TableHead>
+                    <TableHead className="text-xs">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {docs.map((doc: MediaFile) => (
+                    <TableRow key={doc.id} className="table-row-hover">
+                      <TableCell className="text-xs flex items-center gap-1.5">
+                        <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        {doc.originalFilename}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-[10px]">{doc.category}</Badge>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {doc.fileSize ? `${Math.round(doc.fileSize / 1024)} KB` : "—"}
+                      </TableCell>
+                      <TableCell className="text-xs font-mono">
+                        {new Date(doc.createdAt).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <a
+                            href={mediaService.downloadUrl(doc.id)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                          >
+                            <Download className="h-3.5 w-3.5" /> Download
+                          </a>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6 text-destructive hover:text-destructive"
+                            onClick={() => handleDelete(doc.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

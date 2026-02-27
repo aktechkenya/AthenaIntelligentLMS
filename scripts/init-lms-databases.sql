@@ -109,4 +109,22 @@ CREATE DATABASE athena_overdraft
 GRANT ALL PRIVILEGES ON DATABASE athena_overdraft TO athena;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- ─── Media Service ────────────────────────────────────────────────────────────
+SELECT 'Creating athena_media...' AS step;
+CREATE DATABASE athena_media
+    WITH OWNER = athena ENCODING = 'UTF8' TEMPLATE = template0;
+
+\c athena_media
+GRANT ALL PRIVILEGES ON DATABASE athena_media TO athena;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- ─── Notification Service ─────────────────────────────────────────────────────
+SELECT 'Creating athena_notifications...' AS step;
+CREATE DATABASE athena_notifications
+    WITH OWNER = athena ENCODING = 'UTF8' TEMPLATE = template0;
+
+\c athena_notifications
+GRANT ALL PRIVILEGES ON DATABASE athena_notifications TO athena;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
 SELECT 'All LMS databases created successfully.' AS result;

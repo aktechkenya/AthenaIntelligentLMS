@@ -23,6 +23,7 @@ volumes:
   reporting_data:
   scoring_data:
   loki_data:
+  media_storage:
 
 x-lms-common: &lms-common
   restart: unless-stopped
@@ -393,6 +394,61 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8097/actuator/health | grep -q UP || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ─── Media Service (port 8098) ───────────────────────────────────────────────
+  media-service:
+    <<: *lms-common
+    build:
+      context: /home/adira/AthenaIntelligentLMS
+      dockerfile: media-service/Dockerfile
+    container_name: lms-media-service
+    environment:
+      <<: *lms-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/athena_media
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-athena}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
+      STORAGE_LOCATION: /app/storage
+    volumes:
+      - media_storage:/app/storage
+    ports:
+      - "8098:8098"
+    depends_on:
+      lms-db-init:
+        condition: service_completed_successfully
+      discovery-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8098/actuator/health | grep -q UP || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ─── Notification Service (port 8099) ────────────────────────────────────────
+  notification-service:
+    <<: *lms-common
+    build:
+      context: /home/adira/AthenaIntelligentLMS
+      dockerfile: notification-service/Dockerfile
+    container_name: lms-notification-service
+    environment:
+      <<: *lms-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/athena_notifications
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-athena}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
+    ports:
+      - "8099:8099"
+    depends_on:
+      lms-db-init:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8099/actuator/health | grep -q UP || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 5
