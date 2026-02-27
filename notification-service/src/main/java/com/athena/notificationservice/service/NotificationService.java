@@ -45,17 +45,23 @@ public class NotificationService {
             mailSender.setUsername(config.getUsername());
             mailSender.setPassword(config.getPassword());
 
+            boolean hasCredentials = config.getUsername() != null && !config.getUsername().isBlank()
+                    && config.getPassword() != null && !config.getPassword().isBlank();
+            boolean useAuth = hasCredentials;
+            boolean useSsl  = config.getPort() == 465;
+            boolean useTls  = !useSsl && hasCredentials; // STARTTLS only when credentials present
+
             Properties props = mailSender.getJavaMailProperties();
             props.put("mail.transport.protocol", "smtp");
-            props.put("mail.smtp.auth", "true");
+            props.put("mail.smtp.auth", String.valueOf(useAuth));
 
-            if (config.getPort() == 465) {
+            if (useSsl) {
                 props.put("mail.smtp.ssl.enable", "true");
                 props.put("mail.smtp.ssl.trust", "*");
                 props.put("mail.smtp.socketFactory.port", "465");
                 props.put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory");
                 props.put("mail.smtp.socketFactory.fallback", "false");
-            } else {
+            } else if (useTls) {
                 props.put("mail.smtp.starttls.enable", "true");
                 props.put("mail.smtp.starttls.required", "true");
                 props.put("mail.smtp.ssl.trust", "*");
