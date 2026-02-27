@@ -1,7 +1,10 @@
 package com.athena.lms.account.listener;
 
 import com.athena.lms.account.dto.request.CreateAccountRequest;
+import com.athena.lms.account.entity.Customer;
+import com.athena.lms.account.event.AccountEventPublisher;
 import com.athena.lms.account.repository.AccountRepository;
+import com.athena.lms.account.repository.CustomerRepository;
 import com.athena.lms.account.service.AccountService;
 import com.athena.lms.common.config.LmsRabbitMQConfig;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +25,8 @@ public class MobileUserRegisteredListener {
 
     private final AccountService accountService;
     private final AccountRepository accountRepository;
+    private final CustomerRepository customerRepository;
+    private final AccountEventPublisher eventPublisher;
 
     @RabbitListener(queues = LmsRabbitMQConfig.ACCOUNT_MOBILE_QUEUE)
     public void onEvent(Map<String, Object> message) {
@@ -49,6 +54,26 @@ public class MobileUserRegisteredListener {
             }
 
             log.info("Processing mobile.user.registered for customer [{}] tenant [{}]", customerId, tenantId);
+
+            // Auto-create Customer record if not exists (REQ-003)
+            if (!customerRepository.existsByCustomerIdAndTenantId(customerId, tenantId)) {
+                String firstName = getStr(payload, "firstName");
+                String lastName = getStr(payload, "lastName");
+                Customer customer = Customer.builder()
+                        .tenantId(tenantId)
+                        .customerId(customerId)
+                        .firstName(firstName != null ? firstName : "Mobile")
+                        .lastName(lastName != null ? lastName : "User")
+                        .phone(phoneNumber)
+                        .source("MOBILE")
+                        .customerType(Customer.CustomerType.INDIVIDUAL)
+                        .status(Customer.CustomerStatus.ACTIVE)
+                        .kycStatus("PENDING")
+                        .build();
+                Customer saved = customerRepository.save(customer);
+                eventPublisher.publishCustomerCreated(saved.getId(), customerId, tenantId);
+                log.info("Auto-created Customer record for mobile user [{}] in tenant [{}]", customerId, tenantId);
+            }
 
             // Check if account already exists for this customer
             if (!accountRepository.findByCustomerIdAndTenantId(customerId, tenantId).isEmpty()) {

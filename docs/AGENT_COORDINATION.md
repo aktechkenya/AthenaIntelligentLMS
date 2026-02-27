@@ -57,44 +57,9 @@ Both agents should read this file at the start of every session and check for op
 
 ---
 
-### [2026-02-25] REQ-002: Wallet auto-creation for mobile users
+### ~~[2026-02-25] REQ-002: Wallet auto-creation for mobile users~~ → COMPLETED (see below)
 
-**Priority:** MEDIUM — needed for dashboard balance and financial operations
-
-**Problem:** When a user registers via mobile OTP, they get a `mobile_users` record in the gateway DB with a `customerId` (e.g. `MOB-C88EE444`), but no corresponding account/wallet exists in the LMS. The dashboard shows `balance: null` because `account-service` has no account for this customer.
-
-**What's needed:** Either:
-- (a) An LMS endpoint that creates a wallet/account for a given customerId (so mobile-gateway can call it during registration), OR
-- (b) A listener on the `mobile.user.registered` RabbitMQ event that auto-creates a default wallet in overdraft-service + a default account in account-service
-
-**Suggested account defaults:**
-```json
-{
-  "customerId": "MOB-C88EE444",
-  "accountType": "MOBILE_WALLET",
-  "currency": "KES",
-  "initialBalance": 0.00
-}
-```
-
----
-
-### [2026-02-25] REQ-003: Customer record creation for mobile users
-
-**Priority:** MEDIUM — related to REQ-002
-
-**Problem:** LMS services may require a customer record in `customer-service` before accounts can be created. Mobile registration only collects phone number initially (name/email/DOB come later via profile update).
-
-**What's needed:** An endpoint or event listener that creates a minimal customer record from:
-```json
-{
-  "customerId": "MOB-C88EE444",
-  "phoneNumber": "+254712345678",
-  "source": "MOBILE_APP",
-  "status": "ACTIVE"
-}
-```
-Full profile (name, email, DOB, KYC docs) gets updated incrementally as the user fills in their profile.
+### ~~[2026-02-25] REQ-003: Customer record creation for mobile users~~ → COMPLETED (see below)
 
 ---
 
@@ -162,6 +127,31 @@ No `Authorization: Bearer` needed. Do NOT send both — JWT takes precedence if 
 - `shared/athena-lms-common/.../auth/LmsJwtAuthenticationFilter.java` — `tryServiceKeyAuth()` (mobile agent wrote this)
 - `docker-compose.lms.yml` — `LMS_INTERNAL_SERVICE_KEY` added to `x-lms-env` anchor (backend agent)
 - All 12 services rebuilt and redeployed
+
+---
+
+### [2026-02-27] REQ-002: Wallet auto-creation for mobile users — DONE ✅
+
+**Solution:** Already implemented before this request was filed. Both `account-service` and `overdraft-service` have `MobileUserRegisteredListener` classes that consume `mobile.user.registered` RabbitMQ events:
+- `account-service` → creates a WALLET account (type=WALLET, currency=KES)
+- `overdraft-service` → creates a CustomerWallet record
+
+Both are idempotent — duplicate events are safely ignored.
+
+---
+
+### [2026-02-27] REQ-003: Customer record creation for mobile users — DONE ✅
+
+**Solution:** Modified `account-service/MobileUserRegisteredListener.java` to auto-create a `Customer` entity **before** the account/wallet creation:
+- `firstName`/`lastName`: from event payload if present, otherwise defaults to `"Mobile"` / `"User"`
+- `phone`: from event `phoneNumber`
+- `source`: `"MOBILE"`, `customerType`: `INDIVIDUAL`, `status`: `ACTIVE`, `kycStatus`: `"PENDING"`
+- Publishes `CUSTOMER_CREATED` domain event so compliance/reporting services are notified
+- Idempotent: checks `existsByCustomerIdAndTenantId()` before insert
+
+**Mobile app can later update the customer** via `PUT /api/v1/customers/{id}` (account-service:8086) with full profile (name, email, DOB, KYC docs) as the user fills in their profile.
+
+**Files changed:** `account-service/.../listener/MobileUserRegisteredListener.java`
 
 ---
 
