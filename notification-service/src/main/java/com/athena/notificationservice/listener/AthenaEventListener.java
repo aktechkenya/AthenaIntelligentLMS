@@ -39,7 +39,7 @@ public class AthenaEventListener {
                 case "loan.application.submitted" -> handleLoanSubmitted(payload);
                 case "loan.disbursed"              -> handleLoanDisbursed(payload);
                 case "payment.completed"           -> handlePaymentCompleted(payload);
-                case "customer.kyc.verified"       -> handleKycVerified(payload);
+                case "customer.kyc.passed"         -> handleKycVerified(payload);
                 case "loan.stage.changed"          -> handleStageChanged(payload);
                 // Legacy AthenaCreditScore events
                 case "DISPUTE_FILED"  -> handleDisputeFiled(payload);
