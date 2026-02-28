@@ -43,6 +43,16 @@ public class ProductService {
         if (productRepository.existsByProductCodeAndTenantId(req.getProductCode(), tenantId)) {
             throw BusinessException.conflict("Product code already exists: " + req.getProductCode());
         }
+        if (req.getMinAmount() != null && req.getMaxAmount() != null
+                && req.getMinAmount().compareTo(req.getMaxAmount()) > 0) {
+            throw new com.athena.lms.common.exception.BusinessException(
+                "minAmount (" + req.getMinAmount() + ") must not exceed maxAmount (" + req.getMaxAmount() + ")");
+        }
+        if (req.getMinTenorDays() != null && req.getMaxTenorDays() != null
+                && req.getMinTenorDays() > req.getMaxTenorDays()) {
+            throw new com.athena.lms.common.exception.BusinessException(
+                "minTenorDays (" + req.getMinTenorDays() + ") must not exceed maxTenorDays (" + req.getMaxTenorDays() + ")");
+        }
 
         Product product = buildProduct(req, tenantId, createdBy);
         product = productRepository.save(product);

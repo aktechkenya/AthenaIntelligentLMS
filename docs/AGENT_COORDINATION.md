@@ -65,6 +65,35 @@ Both agents should read this file at the start of every session and check for op
 
 ## Backend Change Notices (Backend → Mobile)
 
+### [2026-02-28] Session 17+18: BNPL & Overdraft Integration Fixes
+
+**BNPL Integration (shop-service → loan-origination-service):**
+- `LoanOriginationClient` field mapping fixed: `requestedAmount`, `tenorMonths`, `purpose`, `productId`
+- Auto-submit after loan application creation
+- BNPL product registered in LMS product-service: `3b299267-f8f7-48fa-b9b7-f35430aa3104` (type=BNPL)
+- **BUG-4 FIX**: Mock fallback removed — LMS failures now propagate as errors (no phantom `BNPL-xxx` IDs). `@Transactional` on `OrderService` rolls back stock + order on failure.
+- **BUG-5 FIX**: BNPL orders now reject `UNKNOWN` customerId with 400 error. Users must complete profile first.
+
+**Overdraft Expansion (6 new mobile-gateway endpoints):**
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/api/overdraft/status` | Wallet + facility status |
+| POST | `/api/overdraft/setup` | Create wallet + apply for overdraft |
+| POST | `/api/overdraft/deposit` | Deposit with overdraft auto-repay |
+| POST | `/api/overdraft/withdraw` | Withdraw (allows overdraft draw) |
+| GET | `/api/overdraft/transactions` | Transaction history |
+| POST | `/api/overdraft/suspend` | Suspend overdraft facility |
+
+- **BUG-1 FIX**: Status endpoint now reads `currentBalance` (was `balance` → null)
+- **BUG-2 FIX**: Consecutive overdraft draws now calculate incremental draw amount (was using total negative balance)
+- **BUG-3 FIX**: Overdraft drawn event now publishes actual draw portion (was publishing full withdrawal amount)
+
+**Shared lib changes:**
+- `LmsJwtAuthenticationFilter.tryServiceKeyAuth()` now passes `tenantId` as credentials (was null)
+- `extractCustomerIdAsString()` added for String customerId support
+- `customerId` is `Long→String` throughout shop-service and scoring client
+
 ### [2026-02-25] Current API contract summary for mobile integration
 
 **Base URLs (via Kong or nginx proxy on port 3001):**
@@ -152,6 +181,32 @@ Both are idempotent — duplicate events are safely ignored.
 **Mobile app can later update the customer** via `PUT /api/v1/customers/{id}` (account-service:8086) with full profile (name, email, DOB, KYC docs) as the user fills in their profile.
 
 **Files changed:** `account-service/.../listener/MobileUserRegisteredListener.java`
+
+---
+
+### [2026-02-28] Session 17+18: BNPL + Overdraft Mobile Integration — DONE ✅
+
+**What was done:**
+1. **BNPL integration**: shop-service `LoanOriginationClient` fixed to correctly call loan-origination-service with proper field mapping, auto-submit, and BNPL product ID
+2. **Overdraft mobile expansion**: 6 new endpoints in mobile-gateway `OverdraftController` proxying to `overdraft-service:8097` via `OverdraftProxyService` (with PIN verification and wallet resolution)
+3. **Flutter overdraft screen**: expanded repository, providers, and rewritten screen (setup/deposit/withdraw/suspend)
+4. **5 edge-case bugs fixed** (BUG-1 through BUG-5 — see Backend Change Notices above)
+
+**Verification status:**
+- BNPL happy path: 7/7 PASS (plans, eligibility, calculate, cart, order, real loan UUID, LMS retrieval)
+- Overdraft happy path: 10/10 PASS (register, no-facility, setup, deposit, withdraw, overdraft draw, used amount, transactions, repay, cleared)
+- Edge-case QA: 22 tests (see Session 18 QA report)
+
+**Files changed (LMS):**
+- `overdraft-service/.../service/WalletService.java` — BUG-2 + BUG-3 fixes
+
+**Files changed (Wallet):**
+- `mobile-gateway/.../service/OverdraftProxyService.java` — BUG-1 fix
+- `mobile-gateway/.../client/OverdraftServiceClient.java` — 7 new methods
+- `mobile-gateway/.../service/OverdraftProxyService.java` — PIN verify + wallet resolution + field mapping
+- `mobile-gateway/.../controller/OverdraftController.java` — 6 new endpoints
+- `shop-service/.../client/LoanOriginationClient.java` — BUG-4 fix (removed mock fallback)
+- `shop-service/.../service/OrderService.java` — BUG-5 fix (UNKNOWN customerId guard)
 
 ---
 

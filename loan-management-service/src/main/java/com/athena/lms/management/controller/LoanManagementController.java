@@ -70,11 +70,12 @@ public class LoanManagementController {
     @GetMapping
     public ResponseEntity<PageResponse<LoanResponse>> list(
             @RequestParam(required = false) LoanStatus status,
+            @RequestParam(required = false) String customerId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             Authentication auth) {
         PageRequest pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
-        return ResponseEntity.ok(service.list(getTenantId(auth), status, pageable));
+        return ResponseEntity.ok(service.list(getTenantId(auth), status, customerId, pageable));
     }
 
     @GetMapping("/customer/{customerId}")

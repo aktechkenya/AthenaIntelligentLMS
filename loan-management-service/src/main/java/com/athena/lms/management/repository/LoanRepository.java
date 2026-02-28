@@ -16,6 +16,8 @@ public interface LoanRepository extends JpaRepository<Loan, UUID> {
     Optional<Loan> findByIdAndTenantId(UUID id, String tenantId);
     Page<Loan> findByTenantId(String tenantId, Pageable pageable);
     Page<Loan> findByTenantIdAndStatus(String tenantId, LoanStatus status, Pageable pageable);
+    Page<Loan> findByTenantIdAndCustomerId(String tenantId, String customerId, Pageable pageable);
+    Page<Loan> findByTenantIdAndCustomerIdAndStatus(String tenantId, String customerId, LoanStatus status, Pageable pageable);
     List<Loan> findByTenantIdAndCustomerId(String tenantId, String customerId);
 
     @Query("SELECT l FROM Loan l WHERE l.status = 'ACTIVE' AND l.tenantId = :tenantId")

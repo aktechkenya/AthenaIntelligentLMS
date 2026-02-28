@@ -137,7 +137,9 @@ public class WalletService {
             OverdraftFacility facility = facilityOpt.get();
             if ("ACTIVE".equals(facility.getStatus())) {
                 if (overdraftDrawn) {
-                    BigDecimal additionalDraw = balanceAfter.abs();
+                    BigDecimal previousOverdraft = balanceBefore.negate().max(BigDecimal.ZERO);
+                    BigDecimal newOverdraft = balanceAfter.negate();
+                    BigDecimal additionalDraw = newOverdraft.subtract(previousOverdraft);
                     facility.setDrawnAmount(facility.getDrawnAmount().add(additionalDraw));
                     facilityRepo.save(facility);
                 }
@@ -156,7 +158,9 @@ public class WalletService {
         WalletTransaction saved = txRepo.save(tx);
 
         if (overdraftDrawn) {
-            eventPublisher.publishOverdraftDrawn(walletId, wallet.getCustomerId(), req.getAmount(), tenantId);
+            BigDecimal previousOverdraft = balanceBefore.negate().max(BigDecimal.ZERO);
+            BigDecimal actualDraw = balanceAfter.negate().subtract(previousOverdraft);
+            eventPublisher.publishOverdraftDrawn(walletId, wallet.getCustomerId(), actualDraw, tenantId);
         }
         return toTxResponse(saved);
     }

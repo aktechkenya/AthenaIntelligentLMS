@@ -35,7 +35,17 @@ public class LoanOriginationService {
 
     @Transactional
     public ApplicationResponse create(CreateApplicationRequest req, String tenantId, String userId) {
-        productClient.validateProductActiveAndExists(req.getProductId());
+        java.math.BigDecimal[] limits = productClient.validateAndGetAmountLimits(req.getProductId());
+        java.math.BigDecimal minAmount = limits[0];
+        java.math.BigDecimal maxAmount = limits[1];
+        if (minAmount != null && req.getRequestedAmount().compareTo(minAmount) < 0) {
+            throw new BusinessException(
+                "Requested amount " + req.getRequestedAmount() + " is below product minimum of " + minAmount);
+        }
+        if (maxAmount != null && req.getRequestedAmount().compareTo(maxAmount) > 0) {
+            throw new BusinessException(
+                "Requested amount " + req.getRequestedAmount() + " exceeds product maximum of " + maxAmount);
+        }
         LoanApplication app = LoanApplication.builder()
             .tenantId(tenantId)
             .customerId(req.getCustomerId())

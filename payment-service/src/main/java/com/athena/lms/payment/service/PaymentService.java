@@ -3,6 +3,7 @@ package com.athena.lms.payment.service;
 import com.athena.lms.common.dto.PageResponse;
 import com.athena.lms.common.exception.BusinessException;
 import com.athena.lms.common.exception.ResourceNotFoundException;
+import com.athena.lms.payment.client.LoanManagementClient;
 import com.athena.lms.payment.dto.request.*;
 import com.athena.lms.payment.dto.response.PaymentMethodResponse;
 import com.athena.lms.payment.dto.response.PaymentResponse;
@@ -34,9 +35,11 @@ public class PaymentService {
     private final PaymentRepository paymentRepo;
     private final PaymentMethodRepository methodRepo;
     private final PaymentEventPublisher eventPublisher;
+    private final LoanManagementClient loanManagementClient;
 
     @Transactional
     public PaymentResponse initiate(InitiatePaymentRequest req, String tenantId, String userId) {
+        loanManagementClient.validateLoanExists(req.getLoanId());
         Payment payment = Payment.builder()
             .tenantId(tenantId)
             .customerId(req.getCustomerId())

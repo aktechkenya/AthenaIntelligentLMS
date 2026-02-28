@@ -118,10 +118,17 @@ public class LoanManagementService {
             .build();
     }
 
-    public PageResponse<LoanResponse> list(String tenantId, LoanStatus status, Pageable pageable) {
-        Page<Loan> page = status != null
-            ? loanRepo.findByTenantIdAndStatus(tenantId, status, pageable)
-            : loanRepo.findByTenantId(tenantId, pageable);
+    public PageResponse<LoanResponse> list(String tenantId, LoanStatus status, String customerId, Pageable pageable) {
+        Page<Loan> page;
+        if (customerId != null && !customerId.isBlank() && status != null) {
+            page = loanRepo.findByTenantIdAndCustomerIdAndStatus(tenantId, customerId, status, pageable);
+        } else if (customerId != null && !customerId.isBlank()) {
+            page = loanRepo.findByTenantIdAndCustomerId(tenantId, customerId, pageable);
+        } else if (status != null) {
+            page = loanRepo.findByTenantIdAndStatus(tenantId, status, pageable);
+        } else {
+            page = loanRepo.findByTenantId(tenantId, pageable);
+        }
         return PageResponse.from(page.map(this::toResponse));
     }
 
