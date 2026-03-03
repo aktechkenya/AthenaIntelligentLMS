@@ -1,0 +1,149 @@
+spring:
+  application:
+    name: lms-api-gateway
+
+  cloud:
+    gateway:
+      routes:
+        # ─── Account Service ──────────────────────────────────────────────
+        - id: account-service
+          uri: lb://account-service
+          predicates:
+            - Path=/lms/api/v1/accounts/**
+          filters:
+            - StripPrefix=1
+
+        # ─── Account Service — Customer endpoints ─────────────────────────
+        - id: account-service-customers
+          uri: lb://account-service
+          predicates:
+            - Path=/lms/api/v1/customers/**
+          filters:
+            - StripPrefix=1
+
+        # ─── Account Service — Auth endpoints ─────────────────────────────
+        - id: account-service-auth
+          uri: lb://account-service
+          predicates:
+            - Path=/lms/api/auth/**
+          filters:
+            - StripPrefix=1
+
+        # ─── Product Service ──────────────────────────────────────────────
+        - id: product-service
+          uri: lb://product-service
+          predicates:
+            - Path=/lms/api/v1/products/**
+          filters:
+            - StripPrefix=1
+
+        # ─── Loan Origination Service ─────────────────────────────────────
+        - id: loan-origination-service
+          uri: lb://loan-origination-service
+          predicates:
+            - Path=/lms/api/v1/loan-applications/**
+          filters:
+            - StripPrefix=1
+
+        # ─── Loan Management Service ──────────────────────────────────────
+        - id: loan-management-service
+          uri: lb://loan-management-service
+          predicates:
+            - Path=/lms/api/v1/loans/**
+          filters:
+            - StripPrefix=1
+
+        # ─── Payment Service ──────────────────────────────────────────────
+        - id: payment-service
+          uri: lb://payment-service
+          predicates:
+            - Path=/lms/api/v1/payments/**
+          filters:
+            - StripPrefix=1
+
+        # ─── AI Scoring Service ───────────────────────────────────────────
+        - id: ai-scoring-service
+          uri: lb://ai-scoring-service
+          predicates:
+            - Path=/lms/api/v1/scoring/**
+          filters:
+            - StripPrefix=1
+
+        # ─── Overdraft / Wallet Service ───────────────────────────────────
+        - id: overdraft-service
+          uri: lb://overdraft-service
+          predicates:
+            - Path=/lms/api/v1/wallets/**
+          filters:
+            - StripPrefix=1
+
+        # ─── Compliance Service ───────────────────────────────────────────
+        - id: compliance-service
+          uri: lb://compliance-service
+          predicates:
+            - Path=/lms/api/v1/compliance/**
+          filters:
+            - StripPrefix=1
+
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_UNIQUE
+
+server:
+  port: 8105
+
+jwt:
+  secret: ${JWT_SECRET}
+
+lms:
+  internal:
+    service-key: ${LMS_INTERNAL_SERVICE_KEY:1473bdcbf4d90d90833bb90cf042faa16d3f5729c258624de9118eb4519ffe17}
+
+eureka:
+  client:
+    serviceUrl:
+      defaultZone: ${EUREKA_URI:http://discovery-server:8761/eureka/}
+    register-with-eureka: true
+    fetch-registry: true
+  instance:
+    prefer-ip-address: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics,gateway
+  endpoint:
+    health:
+      show-details: always
+    gateway:
+      enabled: true
+  metrics:
+    tags:
+      service: ${spring.application.name}
+      env: ${APP_ENV:local}
+
+info:
+  app:
+    name: ${spring.application.name}
+    version: "1.0.0"
+
+# Resilience4j circuit breaker defaults
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10000
+        permittedNumberOfCallsInHalfOpenState: 3
+        slidingWindowType: COUNT_BASED
+  timelimiter:
+    configs:
+      default:
+        timeoutDuration: 30s
+
+logging:
+  level:
+    com.athena: INFO
+    org.springframework.cloud.gateway: INFO
+    org.springframework.security: WARN

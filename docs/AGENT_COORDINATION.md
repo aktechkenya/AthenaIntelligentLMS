@@ -65,6 +65,43 @@ Both agents should read this file at the start of every session and check for op
 
 ## Backend Change Notices (Backend → Mobile)
 
+### [2026-03-03] Session 21: LMS API Gateway
+
+**What changed:** All wallet-to-LMS traffic now routes through `lms-api-gateway:8105` instead of calling individual LMS services directly.
+
+**Why:** Eliminates DNS resolution failures (e.g., shop-service can't resolve `lms-account-service`), provides single entry point for auth/logging/rate-limiting.
+
+**URL change (docker-compose.wallet.yml already updated):**
+```
+# Before:
+ACCOUNT_SERVICE_URL: http://lms-account-service:8086
+PAYMENT_SERVICE_URL: http://lms-payment-service:8090
+# etc.
+
+# After (all LMS URLs are now the same):
+ACCOUNT_SERVICE_URL: http://lms-api-gateway:8105/lms
+PAYMENT_SERVICE_URL: http://lms-api-gateway:8105/lms
+# etc.
+```
+
+**How it works:** Gateway strips `/lms` prefix and routes by path:
+- `/lms/api/v1/accounts/**` → account-service
+- `/lms/api/v1/wallets/**` → overdraft-service
+- `/lms/api/v1/payments/**` → payment-service
+- `/lms/api/v1/loan-applications/**` → loan-origination-service
+- `/lms/api/v1/loans/**` → loan-management-service
+- `/lms/api/v1/scoring/**` → ai-scoring-service
+- `/lms/api/v1/compliance/**` → compliance-service
+- `/lms/api/v1/products/**` → product-service
+- `/lms/api/v1/customers/**` → account-service
+- `/lms/api/auth/**` → account-service
+
+**Auth:** Same `X-Service-Key` header — gateway validates and passes through to backend.
+
+**No code changes needed in wallet services** — only the base URL env vars changed.
+
+---
+
 ### [2026-02-28] Session 17+18: BNPL & Overdraft Integration Fixes
 
 **BNPL Integration (shop-service → loan-origination-service):**

@@ -467,6 +467,28 @@ services:
       retries: 5
       start_period: 120s
 
+  # ─── LMS API Gateway (port 8105) ─────────────────────────────────────────────
+  # Single entry point for all external-to-LMS traffic (wallet services, etc.)
+  lms-api-gateway:
+    <<: *lms-common
+    build:
+      context: /home/adira/AthenaIntelligentLMS
+      dockerfile: lms-api-gateway/Dockerfile
+    container_name: lms-api-gateway
+    environment:
+      <<: *lms-env
+    ports:
+      - "8105:8105"
+    depends_on:
+      discovery-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8105/actuator/health | grep -q UP || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
   # ─── LMS Portal UI (port 3000) ───────────────────────────────────────────────
   lms-portal-ui:
     <<: *lms-common
