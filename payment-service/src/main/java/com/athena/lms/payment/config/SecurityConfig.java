@@ -1,5 +1,6 @@
 package com.athena.lms.payment.config;
 
+import com.athena.lms.common.auth.LmsAuthenticationEntryPoint;
 import com.athena.lms.common.auth.LmsJwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -19,6 +20,7 @@ import org.springframework.web.client.RestTemplate;
 public class SecurityConfig {
 
     private final LmsJwtAuthenticationFilter jwtAuthFilter;
+    private final LmsAuthenticationEntryPoint authEntryPoint;
 
     @Bean
     public RestTemplate restTemplate() {
@@ -37,6 +39,7 @@ public class SecurityConfig {
                 .anyRequest().authenticated()
             )
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .exceptionHandling(ex -> ex.authenticationEntryPoint(authEntryPoint))
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }

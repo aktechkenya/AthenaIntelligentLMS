@@ -69,6 +69,11 @@ public class CustomerController {
         return customerService.searchCustomers(q, getTenantId(httpRequest));
     }
 
+    @GetMapping("/by-customer-id/{customerId}")
+    public CustomerResponse getByCustomerId(@PathVariable String customerId, HttpServletRequest httpRequest) {
+        return customerService.getByCustomerId(customerId, getTenantId(httpRequest));
+    }
+
     private String getTenantId(HttpServletRequest req) {
         String tid = (String) req.getAttribute("tenantId");
         return tid != null ? tid : TenantContextHolder.getTenantIdOrDefault();

@@ -117,6 +117,13 @@ public class CustomerService {
     }
 
     @Transactional(readOnly = true)
+    public CustomerResponse getByCustomerId(String customerId, String tenantId) {
+        Customer customer = customerRepository.findByCustomerIdAndTenantId(customerId, tenantId)
+            .orElseThrow(() -> new ResourceNotFoundException("Customer", customerId));
+        return CustomerResponse.from(customer);
+    }
+
+    @Transactional(readOnly = true)
     public List<CustomerResponse> searchCustomers(String q, String tenantId) {
         return customerRepository.searchByTenantAndQuery(tenantId, q)
                 .stream().map(CustomerResponse::from).collect(Collectors.toList());

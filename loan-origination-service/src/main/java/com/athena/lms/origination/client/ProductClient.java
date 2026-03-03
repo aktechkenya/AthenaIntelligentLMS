@@ -86,6 +86,47 @@ public class ProductClient {
         validateAndGetAmountLimits(productId);
     }
 
+    /**
+     * Fetches product schedule configuration (scheduleType, repaymentFrequency).
+     * Returns [scheduleType, repaymentFrequency] or [null, null] on failure.
+     */
+    public String[] getProductScheduleConfig(UUID productId) {
+        if (productId == null) return new String[]{null, null};
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            String authHeader = currentAuthHeader();
+            if (authHeader != null) headers.set("Authorization", authHeader);
+
+            ResponseEntity<Map> response = restTemplate.exchange(
+                productServiceUrl + "/api/v1/products/" + productId,
+                HttpMethod.GET, new HttpEntity<>(headers), Map.class);
+
+            Map<?, ?> body = response.getBody();
+            if (body == null) return new String[]{null, null};
+
+            // Product configuration may be in a nested "configuration" map
+            String scheduleType = null;
+            String repaymentFrequency = null;
+
+            if (body.get("configuration") instanceof Map<?, ?> config) {
+                scheduleType = config.get("scheduleType") != null ? config.get("scheduleType").toString() : null;
+                repaymentFrequency = config.get("repaymentFrequency") != null ? config.get("repaymentFrequency").toString() : null;
+            }
+            // Fallback: check top-level fields
+            if (scheduleType == null && body.get("scheduleType") != null) {
+                scheduleType = body.get("scheduleType").toString();
+            }
+            if (repaymentFrequency == null && body.get("repaymentFrequency") != null) {
+                repaymentFrequency = body.get("repaymentFrequency").toString();
+            }
+
+            return new String[]{scheduleType, repaymentFrequency};
+        } catch (Exception e) {
+            log.warn("Could not fetch schedule config for product {}: {}", productId, e.getMessage());
+            return new String[]{null, null};
+        }
+    }
+
     private String currentAuthHeader() {
         try {
             ServletRequestAttributes attrs =

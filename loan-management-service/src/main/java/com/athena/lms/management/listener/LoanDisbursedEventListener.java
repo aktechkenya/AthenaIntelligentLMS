@@ -41,10 +41,14 @@ public class LoanDisbursedEventListener {
                 ? Integer.parseInt(event.get("tenorMonths").toString())
                 : 12;
             String disbursementAccount = (String) event.get("disbursementAccount");
+            String scheduleType = event.get("scheduleType") != null
+                ? event.get("scheduleType").toString() : null;
+            String repaymentFrequency = event.get("repaymentFrequency") != null
+                ? event.get("repaymentFrequency").toString() : null;
 
             loanManagementService.activateLoan(
                 applicationId, customerId, productId, tenantId,
-                amount, rate, tenorMonths
+                amount, rate, tenorMonths, scheduleType, repaymentFrequency
             );
         } catch (Exception e) {
             log.error("Failed to process loan.disbursed event: {}", e.getMessage(), e);

@@ -140,8 +140,8 @@ public class FloatService {
                 .orElse(null);
 
         if (account == null) {
-            log.warn("No active float account found for tenant {} — cannot process draw for loan {}", tenantId, loanId);
-            return;
+            log.info("No active float account for tenant {} — auto-creating one for loan {}", tenantId, loanId);
+            account = autoCreateFloatAccount(tenantId);
         }
 
         if (account.getAvailable().compareTo(amount) < 0) {
@@ -190,8 +190,8 @@ public class FloatService {
                 .orElse(null);
 
         if (account == null) {
-            log.warn("No active float account found for tenant {} — cannot process top-up", tenantId);
-            return;
+            log.info("No active float account for tenant {} — auto-creating one for top-up", tenantId);
+            account = autoCreateFloatAccount(tenantId);
         }
 
         // Top-up by reducing drawnAmount (repayment of float)
@@ -257,6 +257,23 @@ public class FloatService {
     }
 
     // ---- Private helpers ----
+
+    private FloatAccount autoCreateFloatAccount(String tenantId) {
+        String accountCode = "FLOAT-AUTO-" + tenantId.toUpperCase().replaceAll("[^A-Z0-9]", "");
+        FloatAccount account = new FloatAccount();
+        account.setTenantId(tenantId);
+        account.setAccountName("Auto-created Float Account");
+        account.setAccountCode(accountCode);
+        account.setCurrency("KES");
+        account.setFloatLimit(new BigDecimal("10000000")); // 10M KES default
+        account.setDrawnAmount(BigDecimal.ZERO);
+        account.setStatus(FloatAccountStatus.ACTIVE);
+        account.setDescription("Auto-created float account for tenant " + tenantId);
+        FloatAccount saved = floatAccountRepository.save(account);
+        log.info("Auto-created float account {} (code={}) for tenant {} with limit 10M KES",
+            saved.getId(), accountCode, tenantId);
+        return saved;
+    }
 
     private FloatTransaction buildTransaction(FloatAccount account, FloatTransactionType type,
                                                BigDecimal amount, BigDecimal balanceBefore,

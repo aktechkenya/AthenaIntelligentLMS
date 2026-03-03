@@ -43,8 +43,11 @@ public class LoanManagementService {
     @Transactional
     public void activateLoan(UUID applicationId, String customerId, UUID productId,
                               String tenantId, BigDecimal amount, BigDecimal interestRate,
-                              Integer tenorMonths) {
+                              Integer tenorMonths, String scheduleTypeStr, String repaymentFrequencyStr) {
         log.info("Activating loan for application [{}]", applicationId);
+
+        ScheduleType resolvedScheduleType = resolveScheduleType(scheduleTypeStr);
+        RepaymentFrequency resolvedFrequency = resolveRepaymentFrequency(repaymentFrequencyStr);
 
         LocalDate firstRepayment = LocalDate.now().plusMonths(1);
         LocalDate maturityDate = firstRepayment.plusMonths(tenorMonths - 1);
@@ -62,8 +65,8 @@ public class LoanManagementService {
             .currency("KES")
             .interestRate(interestRate)
             .tenorMonths(tenorMonths)
-            .repaymentFrequency(RepaymentFrequency.MONTHLY)
-            .scheduleType(ScheduleType.EMI)
+            .repaymentFrequency(resolvedFrequency)
+            .scheduleType(resolvedScheduleType)
             .disbursedAt(OffsetDateTime.now())
             .firstRepaymentDate(firstRepayment)
             .maturityDate(maturityDate)
@@ -77,9 +80,17 @@ public class LoanManagementService {
         // Generate schedule
         List<LoanSchedule> schedules = scheduleGenerator.generate(loan);
         loan.getSchedules().addAll(schedules);
+
+        // Populate outstandingInterest from the generated schedule
+        BigDecimal totalScheduledInterest = schedules.stream()
+            .map(LoanSchedule::getInterestDue)
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        loan.setOutstandingInterest(totalScheduledInterest);
+
         loanRepo.save(loan);
 
-        log.info("Loan [{}] activated with {} installments", loan.getId(), schedules.size());
+        log.info("Loan [{}] activated with {} installments, scheduleType={}, frequency={}, totalInterest={}",
+            loan.getId(), schedules.size(), resolvedScheduleType, resolvedFrequency, totalScheduledInterest);
     }
 
     // ─── Read operations ─────────────────────────────────────────────────────────
@@ -236,6 +247,13 @@ public class LoanManagementService {
 
         List<LoanSchedule> newSchedules = scheduleGenerator.generate(loan);
         loan.getSchedules().addAll(newSchedules);
+
+        // Recalculate outstandingInterest from the new schedule
+        BigDecimal totalScheduledInterest = newSchedules.stream()
+            .map(LoanSchedule::getInterestDue)
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        loan.setOutstandingInterest(totalScheduledInterest);
+
         loanRepo.save(loan);
 
         return toResponse(loan);
@@ -299,6 +317,26 @@ public class LoanManagementService {
     }
 
     // ─── Private helpers ──────────────────────────────────────────────────────────
+
+    private ScheduleType resolveScheduleType(String scheduleTypeStr) {
+        if (scheduleTypeStr == null || scheduleTypeStr.isBlank()) return ScheduleType.EMI;
+        return switch (scheduleTypeStr.toUpperCase()) {
+            case "EMI", "REDUCING_BALANCE" -> ScheduleType.EMI;
+            case "FLAT_RATE", "FLAT" -> ScheduleType.FLAT_RATE;
+            case "GRADUATED" -> ScheduleType.FLAT_RATE; // reasonable approximation
+            default -> ScheduleType.EMI;
+        };
+    }
+
+    private RepaymentFrequency resolveRepaymentFrequency(String frequencyStr) {
+        if (frequencyStr == null || frequencyStr.isBlank()) return RepaymentFrequency.MONTHLY;
+        try {
+            return RepaymentFrequency.valueOf(frequencyStr.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            log.warn("Unknown repayment frequency '{}', defaulting to MONTHLY", frequencyStr);
+            return RepaymentFrequency.MONTHLY;
+        }
+    }
 
     private Loan findLoan(UUID id, String tenantId) {
         return loanRepo.findByIdAndTenantId(id, tenantId)

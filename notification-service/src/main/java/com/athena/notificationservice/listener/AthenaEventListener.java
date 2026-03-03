@@ -1,6 +1,7 @@
 package com.athena.notificationservice.listener;
 
 import com.athena.lms.common.config.LmsRabbitMQConfig;
+import com.athena.notificationservice.client.CustomerClient;
 import com.athena.notificationservice.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,6 +21,7 @@ import java.util.Map;
 public class AthenaEventListener {
 
     private final NotificationService notificationService;
+    private final CustomerClient customerClient;
 
     @RabbitListener(queues = LmsRabbitMQConfig.NOTIFICATION_QUEUE)
     public void onLmsEvent(Map<String, Object> message) {
@@ -36,11 +38,11 @@ public class AthenaEventListener {
             log.info("[NOTIFICATION] event={} tenant={}", eventType, tenantId);
 
             switch (eventType) {
-                case "loan.application.submitted" -> handleLoanSubmitted(payload);
-                case "loan.disbursed"              -> handleLoanDisbursed(payload);
-                case "payment.completed"           -> handlePaymentCompleted(payload);
-                case "customer.kyc.passed"         -> handleKycVerified(payload);
-                case "loan.stage.changed"          -> handleStageChanged(payload);
+                case "loan.application.submitted" -> handleLoanSubmitted(payload, tenantId);
+                case "loan.disbursed"              -> handleLoanDisbursed(payload, tenantId);
+                case "payment.completed"           -> handlePaymentCompleted(payload, tenantId);
+                case "customer.kyc.passed"         -> handleKycVerified(payload, tenantId);
+                case "loan.stage.changed"          -> handleStageChanged(payload, tenantId);
                 // Legacy AthenaCreditScore events
                 case "DISPUTE_FILED"  -> handleDisputeFiled(payload);
                 case "SCORE_UPDATED"  -> handleScoreUpdated(payload);
@@ -53,15 +55,15 @@ public class AthenaEventListener {
         }
     }
 
-    // ─── LMS event handlers ──────────────────────────────────────────────────
+    // --- LMS event handlers --------------------------------------------------
 
-    private void handleLoanSubmitted(Map<String, Object> payload) {
+    private void handleLoanSubmitted(Map<String, Object> payload, String tenantId) {
         String customerId = getStr(payload, "customerId");
         String applicationId = getStr(payload, "applicationId");
         log.info("[NOTIFICATION] Loan application {} submitted for customer {}", applicationId, customerId);
         notificationService.sendEmail(
             "loan-origination-service",
-            resolveRecipient(customerId),
+            resolveRecipient(customerId, tenantId),
             "Loan Application Received — Athena LMS",
             String.format(
                 "Dear Customer,\n\nYour loan application (Ref: %s) has been received " +
@@ -70,14 +72,14 @@ public class AthenaEventListener {
                 applicationId));
     }
 
-    private void handleLoanDisbursed(Map<String, Object> payload) {
+    private void handleLoanDisbursed(Map<String, Object> payload, String tenantId) {
         String customerId = getStr(payload, "customerId");
         Object amount = payload.getOrDefault("amount", "N/A");
         String account = getStr(payload, "disbursementAccount");
         log.info("[NOTIFICATION] Loan disbursed to customer {} amount={}", customerId, amount);
         notificationService.sendEmail(
             "loan-management-service",
-            resolveRecipient(customerId),
+            resolveRecipient(customerId, tenantId),
             "Loan Disbursed — Athena LMS",
             String.format(
                 "Dear Customer,\n\nYour loan of KES %s has been disbursed to account %s.\n\n" +
@@ -86,14 +88,14 @@ public class AthenaEventListener {
                 amount, account != null ? account : "your registered account"));
     }
 
-    private void handlePaymentCompleted(Map<String, Object> payload) {
+    private void handlePaymentCompleted(Map<String, Object> payload, String tenantId) {
         String customerId = getStr(payload, "customerId");
         Object amount = payload.getOrDefault("amount", "N/A");
         Object outstanding = payload.getOrDefault("outstandingBalance", "N/A");
         log.info("[NOTIFICATION] Repayment received for customer {} amount={}", customerId, amount);
         notificationService.sendEmail(
             "payment-service",
-            resolveRecipient(customerId),
+            resolveRecipient(customerId, tenantId),
             "Repayment Confirmed — Athena LMS",
             String.format(
                 "Dear Customer,\n\nYour repayment of KES %s has been received and processed.\n\n" +
@@ -101,34 +103,49 @@ public class AthenaEventListener {
                 amount, outstanding));
     }
 
-    private void handleKycVerified(Map<String, Object> payload) {
+    private void handleKycVerified(Map<String, Object> payload, String tenantId) {
         String customerId = getStr(payload, "customerId");
         log.info("[NOTIFICATION] KYC verified for customer {}", customerId);
         notificationService.sendEmail(
             "compliance-service",
-            resolveRecipient(customerId),
+            resolveRecipient(customerId, tenantId),
             "KYC Verification Approved — Athena LMS",
             "Dear Customer,\n\nYour identity verification (KYC) has been successfully approved. " +
             "You are now eligible to apply for loan products on the Athena LMS platform.\n\n" +
             "Regards,\nAthena LMS Team");
     }
 
-    private void handleStageChanged(Map<String, Object> payload) {
+    private void handleStageChanged(Map<String, Object> payload, String tenantId) {
         String newStage = getStr(payload, "newStage");
-        if ("OVERDUE".equals(newStage) || "DEFAULTED".equals(newStage)) {
-            String loanId = getStr(payload, "loanId");
-            String customerId = getStr(payload, "customerId");
+        String loanId = getStr(payload, "loanId");
+        String customerId = getStr(payload, "customerId");
+
+        // Alert collections team for any non-PERFORMING stage
+        if (newStage != null && !"PERFORMING".equals(newStage)) {
             log.warn("[NOTIFICATION] Loan {} moved to {} — alerting collections", loanId, newStage);
             notificationService.sendEmail(
                 "loan-management-service",
                 "collections@athena.lms",
                 String.format("ALERT: Loan %s moved to %s", loanId, newStage),
-                String.format("Loan %s for customer %s has moved to stage: %s.\n\nPlease initiate collections process.",
+                String.format("Loan %s for customer %s has moved to stage: %s.\n\nPlease review and initiate appropriate collections action.",
                     loanId, customerId, newStage));
+        }
+
+        // Notify customer for serious stages (DOUBTFUL, LOSS)
+        if ("DOUBTFUL".equals(newStage) || "LOSS".equals(newStage)) {
+            notificationService.sendEmail(
+                "loan-management-service",
+                resolveRecipient(customerId, tenantId),
+                "Important: Loan Account Status Update — Athena LMS",
+                String.format(
+                    "Dear Customer,\n\nYour loan (Ref: %s) has been classified as %s due to outstanding payments.\n\n" +
+                    "Please contact us urgently to discuss repayment options and avoid further escalation.\n\n" +
+                    "Regards,\nAthena LMS Team",
+                    loanId, newStage));
         }
     }
 
-    // ─── Legacy AthenaCreditScore event handlers ─────────────────────────────
+    // --- Legacy AthenaCreditScore event handlers -----------------------------
 
     private void handleDisputeFiled(Map<String, Object> payload) {
         String email = getStr(payload, "email");
@@ -169,7 +186,7 @@ public class AthenaEventListener {
         }
     }
 
-    // ─── Legacy athena.dispute.queue (backward compat) ───────────────────────
+    // --- Legacy athena.dispute.queue (backward compat) -----------------------
 
     @RabbitListener(queues = "athena.dispute.queue")
     public void handleDisputeEvent(Map<String, Object> event) {
@@ -178,7 +195,7 @@ public class AthenaEventListener {
         // Routes to compliance team mailbox — configure via /api/v1/notifications/config
     }
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────
+    // --- Helpers -------------------------------------------------------------
 
     private String resolveEventType(Map<String, Object> message) {
         if (message.containsKey("eventType")) return getStr(message, "eventType");
@@ -209,12 +226,10 @@ public class AthenaEventListener {
     }
 
     /**
-     * Resolve recipient email from customerId.
-     * In production this would call customer-service; here we log and use a placeholder.
-     * Actual delivery only happens if email config is enabled in notification_configs table.
+     * Resolve recipient email from customerId by calling account-service's
+     * customer lookup. Falls back to noreply@athena.lms if lookup fails.
      */
-    private String resolveRecipient(String customerId) {
-        log.debug("[NOTIFICATION] Resolving recipient for customerId={} (using placeholder)", customerId);
-        return "noreply@athena.lms"; // placeholder — real lookup would call customer-service
+    private String resolveRecipient(String customerId, String tenantId) {
+        return customerClient.resolveEmail(customerId, tenantId);
     }
 }

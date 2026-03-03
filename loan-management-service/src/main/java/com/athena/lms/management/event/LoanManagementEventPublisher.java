@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.Map;
@@ -53,6 +54,13 @@ public class LoanManagementEventPublisher {
         payload.put("paymentMethod", repayment.getPaymentMethod());
         payload.put("paymentType", "LOAN_REPAYMENT");
         payload.put("loanId", loan.getId());
+
+        BigDecimal outstandingBalance = loan.getOutstandingPrincipal()
+            .add(loan.getOutstandingInterest())
+            .add(loan.getOutstandingFees())
+            .add(loan.getOutstandingPenalty());
+        payload.put("outstandingBalance", outstandingBalance);
+
         publish("payment.completed", payload);
     }
 

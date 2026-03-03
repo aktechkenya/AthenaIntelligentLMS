@@ -36,6 +36,13 @@ public class LoanOriginationEventPublisher {
         publish("loan.disbursed", app, null);
     }
 
+    public void publishDisbursed(LoanApplication app, String scheduleType, String repaymentFrequency) {
+        Map<String, Object> extra = new HashMap<>();
+        if (scheduleType != null) extra.put("scheduleType", scheduleType);
+        if (repaymentFrequency != null) extra.put("repaymentFrequency", repaymentFrequency);
+        publish("loan.disbursed", app, extra.isEmpty() ? null : extra);
+    }
+
     private void publish(String routingKey, LoanApplication app, Map<String, Object> extra) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("eventType", routingKey);

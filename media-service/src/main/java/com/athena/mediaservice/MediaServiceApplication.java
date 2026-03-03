@@ -1,6 +1,7 @@
 package com.athena.mediaservice;
 
 import com.athena.lms.common.auth.JwtUtil;
+import com.athena.lms.common.auth.LmsAuthenticationEntryPoint;
 import com.athena.lms.common.auth.LmsJwtAuthenticationFilter;
 import com.athena.lms.common.auth.MdcLoggingFilter;
 import com.athena.lms.common.exception.GlobalExceptionHandler;
@@ -13,7 +14,7 @@ import org.springframework.context.annotation.Import;
 @SpringBootApplication(scanBasePackages = {"com.athena.mediaservice"})
 @EnableDiscoveryClient
 @EnableCaching
-@Import({JwtUtil.class, MdcLoggingFilter.class, LmsJwtAuthenticationFilter.class, GlobalExceptionHandler.class})
+@Import({JwtUtil.class, MdcLoggingFilter.class, LmsJwtAuthenticationFilter.class, LmsAuthenticationEntryPoint.class, GlobalExceptionHandler.class})
 public class MediaServiceApplication {
     public static void main(String[] args) {
         SpringApplication.run(MediaServiceApplication.class, args);

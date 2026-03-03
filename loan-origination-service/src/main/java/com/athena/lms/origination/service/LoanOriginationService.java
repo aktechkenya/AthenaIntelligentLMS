@@ -129,7 +129,10 @@ public class LoanOriginationService {
         app.setDisbursedAt(OffsetDateTime.now());
         transition(app, ApplicationStatus.DISBURSED, null, userId);
         applicationRepo.save(app);
-        eventPublisher.publishDisbursed(app);
+
+        // Fetch schedule config from product-service and include in disbursement event
+        String[] scheduleConfig = productClient.getProductScheduleConfig(app.getProductId());
+        eventPublisher.publishDisbursed(app, scheduleConfig[0], scheduleConfig[1]);
         return toResponse(app);
     }
 
