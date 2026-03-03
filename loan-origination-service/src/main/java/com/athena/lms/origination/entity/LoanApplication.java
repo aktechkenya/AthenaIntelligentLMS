@@ -64,6 +64,10 @@ public class LoanApplication {
     @Column(name = "interest_rate", precision = 8, scale = 4)
     private BigDecimal interestRate;
 
+    @Builder.Default
+    @Column(name = "deposit_amount", precision = 18, scale = 2)
+    private BigDecimal depositAmount = BigDecimal.ZERO;
+
     @Column(name = "disbursed_amount", precision = 18, scale = 2)
     private BigDecimal disbursedAmount;
 

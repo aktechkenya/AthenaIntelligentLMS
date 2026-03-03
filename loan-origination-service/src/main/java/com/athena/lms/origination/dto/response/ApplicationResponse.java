@@ -25,6 +25,7 @@ public class ApplicationResponse {
     private RiskGrade riskGrade;
     private Integer creditScore;
     private BigDecimal interestRate;
+    private BigDecimal depositAmount;
     private BigDecimal disbursedAmount;
     private OffsetDateTime disbursedAt;
     private String disbursementAccount;

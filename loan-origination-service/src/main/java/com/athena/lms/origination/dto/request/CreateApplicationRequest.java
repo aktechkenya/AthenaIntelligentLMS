@@ -15,4 +15,5 @@ public class CreateApplicationRequest {
     private String purpose;
     private String currency = "KES";
     private String disbursementAccount;
+    private BigDecimal depositAmount;
 }
