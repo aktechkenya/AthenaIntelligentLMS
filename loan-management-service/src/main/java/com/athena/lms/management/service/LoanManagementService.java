@@ -148,7 +148,7 @@ public class LoanManagementService {
             .stream().map(this::toResponse).collect(Collectors.toList());
     }
 
-    // ─── Repayment (waterfall: penalty → fee → interest → principal) ─────────────
+    // ─── Repayment (schedule-based waterfall: per-installment penalty → fee → interest → principal) ──
 
     @Transactional
     public RepaymentResponse applyRepayment(UUID loanId, RepaymentRequest req, String tenantId, String userId) {
@@ -159,27 +159,63 @@ public class LoanManagementService {
 
         BigDecimal remaining = req.getAmount();
 
-        // Waterfall: penalty first
-        BigDecimal penaltyApplied = apply(remaining, loan.getOutstandingPenalty());
-        remaining = remaining.subtract(penaltyApplied);
+        // Schedule-based waterfall: allocate per-installment (oldest first)
+        List<LoanSchedule> pending = scheduleRepo.findByLoanIdAndStatus(loan.getId(), "PENDING");
+        pending.sort((a, b) -> a.getInstallmentNo().compareTo(b.getInstallmentNo()));
+
+        BigDecimal penaltyApplied = BigDecimal.ZERO;
+        BigDecimal feeApplied = BigDecimal.ZERO;
+        BigDecimal interestApplied = BigDecimal.ZERO;
+        BigDecimal principalApplied = BigDecimal.ZERO;
+
+        for (LoanSchedule inst : pending) {
+            if (remaining.compareTo(BigDecimal.ZERO) <= 0) break;
+
+            // Per-installment remaining amounts
+            BigDecimal instPenalty = apply(remaining, inst.getPenaltyDue().subtract(inst.getPenaltyPaid()));
+            remaining = remaining.subtract(instPenalty);
+
+            BigDecimal instFee = apply(remaining, inst.getFeeDue().subtract(inst.getFeePaid()));
+            remaining = remaining.subtract(instFee);
+
+            BigDecimal instInterest = apply(remaining, inst.getInterestDue().subtract(inst.getInterestPaid()));
+            remaining = remaining.subtract(instInterest);
+
+            BigDecimal instPrincipal = apply(remaining, inst.getPrincipalDue().subtract(inst.getPrincipalPaid()));
+            remaining = remaining.subtract(instPrincipal);
+
+            // Update schedule-level paid amounts
+            inst.setPenaltyPaid(inst.getPenaltyPaid().add(instPenalty));
+            inst.setFeePaid(inst.getFeePaid().add(instFee));
+            inst.setInterestPaid(inst.getInterestPaid().add(instInterest));
+            inst.setPrincipalPaid(inst.getPrincipalPaid().add(instPrincipal));
+            inst.setTotalPaid(inst.getPenaltyPaid().add(inst.getFeePaid())
+                .add(inst.getInterestPaid()).add(inst.getPrincipalPaid()));
+
+            if (inst.getTotalPaid().compareTo(inst.getTotalDue()) >= 0) {
+                inst.setStatus("PAID");
+                inst.setPaidDate(LocalDate.now());
+            } else if (inst.getTotalPaid().compareTo(BigDecimal.ZERO) > 0) {
+                inst.setStatus("PARTIAL");
+            }
+
+            penaltyApplied = penaltyApplied.add(instPenalty);
+            feeApplied = feeApplied.add(instFee);
+            interestApplied = interestApplied.add(instInterest);
+            principalApplied = principalApplied.add(instPrincipal);
+        }
+
+        // Any overpayment beyond all installments goes to loan-level outstanding principal
+        if (remaining.compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal extraPrincipal = apply(remaining, loan.getOutstandingPrincipal().subtract(principalApplied));
+            principalApplied = principalApplied.add(extraPrincipal);
+        }
+
+        // Update loan-level outstanding amounts
         loan.setOutstandingPenalty(loan.getOutstandingPenalty().subtract(penaltyApplied));
-
-        // Then fees
-        BigDecimal feeApplied = apply(remaining, loan.getOutstandingFees());
-        remaining = remaining.subtract(feeApplied);
         loan.setOutstandingFees(loan.getOutstandingFees().subtract(feeApplied));
-
-        // Then interest
-        BigDecimal interestApplied = apply(remaining, loan.getOutstandingInterest());
-        remaining = remaining.subtract(interestApplied);
         loan.setOutstandingInterest(loan.getOutstandingInterest().subtract(interestApplied));
-
-        // Then principal
-        BigDecimal principalApplied = apply(remaining, loan.getOutstandingPrincipal());
         loan.setOutstandingPrincipal(loan.getOutstandingPrincipal().subtract(principalApplied));
-
-        // Update schedule installments (oldest first)
-        updateScheduleWithRepayment(loan, req.getAmount(), penaltyApplied, feeApplied, interestApplied, principalApplied);
 
         LocalDate effectiveDate = req.getPaymentDate() != null ? req.getPaymentDate() : LocalDate.now();
         loan.setLastRepaymentDate(effectiveDate);
@@ -348,27 +384,6 @@ public class LoanManagementService {
         return available.min(outstanding);
     }
 
-    private void updateScheduleWithRepayment(Loan loan, BigDecimal total,
-                                              BigDecimal penalty, BigDecimal fee,
-                                              BigDecimal interest, BigDecimal principal) {
-        BigDecimal remaining = total;
-        List<LoanSchedule> pending = scheduleRepo.findByLoanIdAndStatus(loan.getId(), "PENDING");
-        pending.sort((a, b) -> a.getInstallmentNo().compareTo(b.getInstallmentNo()));
-
-        for (LoanSchedule inst : pending) {
-            if (remaining.compareTo(BigDecimal.ZERO) <= 0) break;
-            BigDecimal instBalance = inst.getTotalDue().subtract(inst.getTotalPaid());
-            BigDecimal payment = remaining.min(instBalance);
-            inst.setTotalPaid(inst.getTotalPaid().add(payment));
-            remaining = remaining.subtract(payment);
-            if (inst.getTotalPaid().compareTo(inst.getTotalDue()) >= 0) {
-                inst.setStatus("PAID");
-                inst.setPaidDate(LocalDate.now());
-            } else {
-                inst.setStatus("PARTIAL");
-            }
-        }
-    }
 
     private LoanStage classifyStage(int dpd) {
         if (dpd == 0)        return LoanStage.PERFORMING;

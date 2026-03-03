@@ -85,6 +85,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 5
+      start_period: 120s
 
   # ─── Product Service (port 8087) ─────────────────────────────────────────────
   product-service:
@@ -112,6 +113,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 5
+      start_period: 120s
 
   # ─── Loan Origination Service (port 8088) ────────────────────────────────────
   loan-origination-service:
@@ -139,6 +141,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 5
+      start_period: 120s
 
   # ─── Loan Management Service (port 8089) ─────────────────────────────────────
   loan-management-service:
@@ -168,6 +171,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 5
+      start_period: 120s
 
   # ─── Payment Service (port 8090) ─────────────────────────────────────────────
   payment-service:
@@ -195,6 +199,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 5
+      start_period: 120s
 
   # ─── Accounting Service (port 8091) ──────────────────────────────────────────
   accounting-service:
@@ -224,6 +229,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 5
+      start_period: 120s
 
   # ─── Float Service (port 8092) ───────────────────────────────────────────────
   float-service:
@@ -253,6 +259,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 5
+      start_period: 120s
 
   # ─── Collections Service (port 8093) ─────────────────────────────────────────
   collections-service:
@@ -282,6 +289,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 5
+      start_period: 120s
 
   # ─── Compliance Service (port 8094) ──────────────────────────────────────────
   compliance-service:
@@ -309,6 +317,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 5
+      start_period: 120s
 
   # ─── Reporting Service (port 8095) ───────────────────────────────────────────
   reporting-service:
@@ -336,6 +345,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 5
+      start_period: 120s
 
   # ─── AI Scoring Service (port 8096) ──────────────────────────────────────────
   # Bridge adapter: calls existing AthenaCreditScore Python service (athena-python-service:8001)
@@ -367,6 +377,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 5
+      start_period: 120s
 
   # ─── Overdraft Service (port 8097) ───────────────────────────────────────────
   overdraft-service:
@@ -397,6 +408,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 5
+      start_period: 120s
 
   # ─── Media Service (port 8098) ───────────────────────────────────────────────
   media-service:
@@ -425,6 +437,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 5
+      start_period: 120s
 
   # ─── Notification Service (port 8099) ────────────────────────────────────────
   notification-service:
@@ -452,6 +465,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 5
+      start_period: 120s
 
   # ─── LMS Portal UI (port 3000) ───────────────────────────────────────────────
   lms-portal-ui:
@@ -477,6 +491,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 5
+      start_period: 120s
 
 
   # ─── Loki (log aggregation) ───────────────────────────────────────────────
