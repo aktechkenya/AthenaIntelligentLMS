@@ -19,6 +19,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -32,6 +33,7 @@ public class InterestAccrualService {
     private final CustomerWalletRepository walletRepo;
     private final WalletTransactionRepository txRepo;
     private final OverdraftEventPublisher eventPublisher;
+    private final AuditService auditService;
 
     @Scheduled(cron = "0 1 0 * * *")
     @Transactional
@@ -71,11 +73,16 @@ public class InterestAccrualService {
             return;
         }
 
+        // Bug fix: capture pre-capitalisation drawn amount BEFORE mutation
+        BigDecimal preCapDrawnAmount = facility.getDrawnAmount();
+
         BigDecimal balanceBefore = wallet.getCurrentBalance();
         BigDecimal balanceAfter = balanceBefore.subtract(interest);
         wallet.setCurrentBalance(balanceAfter);
 
-        facility.setDrawnAmount(facility.getDrawnAmount().add(interest));
+        // Add interest to accruedInterest (not drawnPrincipal) and recalculate
+        facility.setAccruedInterest(facility.getAccruedInterest().add(interest));
+        facility.recalculateDrawnAmount();
         facilityRepo.save(facility);
 
         BigDecimal overdraftHeadroom = facility.getApprovedLimit().subtract(facility.getDrawnAmount());
@@ -99,13 +106,19 @@ public class InterestAccrualService {
         charge.setTenantId(facility.getTenantId());
         charge.setFacilityId(facility.getId());
         charge.setChargeDate(today);
-        charge.setDrawnAmount(facility.getDrawnAmount());
+        charge.setDrawnAmount(preCapDrawnAmount); // Bug fix: record pre-capitalisation balance
         charge.setDailyRate(dailyRate);
         charge.setInterestCharged(interest);
         charge.setReference(ref);
         chargeRepo.save(charge);
 
         eventPublisher.publishInterestCharged(facility.getWalletId(), facility.getCustomerId(), interest, facility.getTenantId());
+
+        auditService.audit(facility.getTenantId(), "FACILITY", facility.getId(), "INTEREST_CHARGED",
+            Map.of("drawnAmount", preCapDrawnAmount),
+            Map.of("drawnAmount", facility.getDrawnAmount(), "accruedInterest", facility.getAccruedInterest()),
+            Map.of("interest", interest, "dailyRate", dailyRate, "chargeDate", today.toString()));
+
         log.info("Charged interest {} on facility {} wallet {}", interest, facility.getId(), facility.getWalletId());
     }
 }

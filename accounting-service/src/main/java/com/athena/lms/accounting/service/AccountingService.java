@@ -320,6 +320,64 @@ public class AccountingService {
         eventPublisher.publishJournalPosted(entry);
     }
 
+    // ─── Overdraft GL Posting ─────────────────────────────────────────────────────
+
+    @Transactional
+    public void postOverdraftDrawn(String tenantId, String sourceId, BigDecimal amount) {
+        // DR 1250 Overdraft Receivable / CR 1000 Cash
+        UUID drAccount = resolveAccountId(tenantId, "1250");
+        UUID crAccount = resolveAccountId(tenantId, "1000");
+        JournalEntry entry = buildSystemEntry(tenantId, "OD-DRAW-" + sourceId,
+            "Overdraft drawn " + sourceId, "overdraft.drawn", sourceId,
+            drAccount, crAccount, amount);
+        entryRepo.save(entry);
+        updateAccountBalances(entry);
+        eventPublisher.publishJournalPosted(entry);
+        log.info("Posted overdraft drawn journal [{}] amount [{}]", sourceId, amount);
+    }
+
+    @Transactional
+    public void postOverdraftRepaid(String tenantId, String sourceId, BigDecimal amount) {
+        // DR 1000 Cash / CR 1250 Overdraft Receivable
+        UUID drAccount = resolveAccountId(tenantId, "1000");
+        UUID crAccount = resolveAccountId(tenantId, "1250");
+        JournalEntry entry = buildSystemEntry(tenantId, "OD-RPMT-" + sourceId,
+            "Overdraft repayment " + sourceId, "overdraft.repaid", sourceId,
+            drAccount, crAccount, amount);
+        entryRepo.save(entry);
+        updateAccountBalances(entry);
+        eventPublisher.publishJournalPosted(entry);
+        log.info("Posted overdraft repayment journal [{}] amount [{}]", sourceId, amount);
+    }
+
+    @Transactional
+    public void postOverdraftInterestCharged(String tenantId, String sourceId, BigDecimal amount) {
+        // DR 1250 Overdraft Receivable / CR 4300 Overdraft Interest Income
+        UUID drAccount = resolveAccountId(tenantId, "1250");
+        UUID crAccount = resolveAccountId(tenantId, "4300");
+        JournalEntry entry = buildSystemEntry(tenantId, "OD-INT-" + sourceId,
+            "Overdraft interest charged " + sourceId, "overdraft.interest.charged", sourceId,
+            drAccount, crAccount, amount);
+        entryRepo.save(entry);
+        updateAccountBalances(entry);
+        eventPublisher.publishJournalPosted(entry);
+        log.info("Posted overdraft interest journal [{}] amount [{}]", sourceId, amount);
+    }
+
+    @Transactional
+    public void postOverdraftFeeCharged(String tenantId, String sourceId, BigDecimal amount) {
+        // DR 1250 Overdraft Receivable / CR 4100 Fee Income
+        UUID drAccount = resolveAccountId(tenantId, "1250");
+        UUID crAccount = resolveAccountId(tenantId, "4100");
+        JournalEntry entry = buildSystemEntry(tenantId, "OD-FEE-" + sourceId,
+            "Overdraft fee charged " + sourceId, "overdraft.fee.charged", sourceId,
+            drAccount, crAccount, amount);
+        entryRepo.save(entry);
+        updateAccountBalances(entry);
+        eventPublisher.publishJournalPosted(entry);
+        log.info("Posted overdraft fee journal [{}] amount [{}]", sourceId, amount);
+    }
+
     // ─── Private helpers ──────────────────────────────────────────────────────────
 
     private BigDecimal getBigDecimal(Map<String, Object> m, String key) {

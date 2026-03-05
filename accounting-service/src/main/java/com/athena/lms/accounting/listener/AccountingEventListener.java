@@ -37,11 +37,15 @@ public class AccountingEventListener {
             log.info("Accounting processing event [{}] for tenant [{}]", eventType, tenantId);
 
             switch (eventType) {
-                case "loan.disbursed"       -> handleLoanDisbursed(payload, tenantId);
-                case "payment.completed"    -> handlePaymentCompleted(payload, tenantId);
-                case "payment.reversed"     -> handlePaymentReversed(payload, tenantId);
-                case "loan.closed"          -> handleLoanClosed(payload, tenantId);
-                case "loan.stage.changed"   -> handleStageChanged(payload, tenantId);
+                case "loan.disbursed"            -> handleLoanDisbursed(payload, tenantId);
+                case "payment.completed"         -> handlePaymentCompleted(payload, tenantId);
+                case "payment.reversed"          -> handlePaymentReversed(payload, tenantId);
+                case "loan.closed"               -> handleLoanClosed(payload, tenantId);
+                case "loan.stage.changed"        -> handleStageChanged(payload, tenantId);
+                case "overdraft.drawn"           -> handleOverdraftDrawn(payload, tenantId);
+                case "overdraft.repaid"          -> handleOverdraftRepaid(payload, tenantId);
+                case "overdraft.interest.charged" -> handleOverdraftInterestCharged(payload, tenantId);
+                case "overdraft.fee.charged"     -> handleOverdraftFeeCharged(payload, tenantId);
                 default -> log.debug("No accounting handler for event: {}", eventType);
             }
         } catch (Exception e) {
@@ -88,6 +92,45 @@ public class AccountingEventListener {
         String newStage = getStr(payload, "newStage");
         log.info("Loan [{}] stage changed to [{}] — provision review may be required", loanId, newStage);
         // Provision entries would be posted here in a full IFRS 9 implementation
+    }
+
+    // ─── Overdraft handlers ──────────────────────────────────────────────────────
+
+    private void handleOverdraftDrawn(Map<String, Object> payload, String tenantId) {
+        String walletId = getStr(payload, "walletId");
+        String sourceId = "OD-DRAW-" + walletId;
+        if (accountingService.entryExists("overdraft.drawn", sourceId)) return;
+        BigDecimal amount = getBigDecimal(payload, "amount");
+        // DR 1250 Overdraft Receivable / CR 1000 Cash
+        accountingService.postOverdraftDrawn(tenantId, sourceId, amount);
+    }
+
+    private void handleOverdraftRepaid(Map<String, Object> payload, String tenantId) {
+        String walletId = getStr(payload, "walletId");
+        String sourceId = "OD-RPMT-" + walletId + "-" + System.currentTimeMillis();
+        if (accountingService.entryExists("overdraft.repaid", sourceId)) return;
+        BigDecimal amount = getBigDecimal(payload, "amount");
+        // DR 1000 Cash / CR 1250 Overdraft Receivable
+        accountingService.postOverdraftRepaid(tenantId, sourceId, amount);
+    }
+
+    private void handleOverdraftInterestCharged(Map<String, Object> payload, String tenantId) {
+        String walletId = getStr(payload, "walletId");
+        String sourceId = "OD-INT-" + walletId + "-" + System.currentTimeMillis();
+        if (accountingService.entryExists("overdraft.interest.charged", sourceId)) return;
+        BigDecimal interest = getBigDecimal(payload, "interestCharged");
+        // DR 1250 Overdraft Receivable / CR 4300 Overdraft Interest Income
+        accountingService.postOverdraftInterestCharged(tenantId, sourceId, interest);
+    }
+
+    private void handleOverdraftFeeCharged(Map<String, Object> payload, String tenantId) {
+        String walletId = getStr(payload, "walletId");
+        String reference = getStr(payload, "reference");
+        String sourceId = "OD-FEE-" + (reference != null ? reference : walletId);
+        if (accountingService.entryExists("overdraft.fee.charged", sourceId)) return;
+        BigDecimal amount = getBigDecimal(payload, "amount");
+        // DR 1250 Overdraft Receivable / CR 4100 Fee Income
+        accountingService.postOverdraftFeeCharged(tenantId, sourceId, amount);
     }
 
     // ─── helpers ─────────────────────────────────────────────────────────────────

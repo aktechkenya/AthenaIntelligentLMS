@@ -80,4 +80,15 @@ public final class EventTypes {
     public static final String SHOP_ORDER_SHIPPED   = "shop.order.shipped";
     public static final String SHOP_ORDER_DELIVERED  = "shop.order.delivered";
     public static final String SHOP_BNPL_APPROVED   = "shop.bnpl.approved";
+
+    // ─── Overdraft events ───────────────────────────────────────────────────────
+    public static final String OVERDRAFT_APPLIED          = "overdraft.applied";
+    public static final String OVERDRAFT_DRAWN            = "overdraft.drawn";
+    public static final String OVERDRAFT_REPAID           = "overdraft.repaid";
+    public static final String OVERDRAFT_SUSPENDED        = "overdraft.suspended";
+    public static final String OVERDRAFT_INTEREST_CHARGED = "overdraft.interest.charged";
+    public static final String OVERDRAFT_FEE_CHARGED      = "overdraft.fee.charged";
+    public static final String OVERDRAFT_DPD_UPDATED      = "overdraft.dpd.updated";
+    public static final String OVERDRAFT_STAGE_CHANGED    = "overdraft.stage.changed";
+    public static final String OVERDRAFT_BILLING_STATEMENT = "overdraft.billing.statement";
 }

@@ -6,6 +6,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -41,11 +42,35 @@ public class OverdraftFacility {
     @Column(name = "drawn_amount", nullable = false, precision = 19, scale = 4)
     private BigDecimal drawnAmount = BigDecimal.ZERO;
 
+    @Column(name = "drawn_principal", nullable = false, precision = 19, scale = 4)
+    private BigDecimal drawnPrincipal = BigDecimal.ZERO;
+
+    @Column(name = "accrued_interest", nullable = false, precision = 19, scale = 4)
+    private BigDecimal accruedInterest = BigDecimal.ZERO;
+
     @Column(name = "interest_rate", nullable = false, precision = 5, scale = 4)
     private BigDecimal interestRate;
 
     @Column(name = "status", nullable = false, length = 20)
     private String status = "ACTIVE";
+
+    @Column(name = "dpd", nullable = false)
+    private Integer dpd = 0;
+
+    @Column(name = "npl_stage", nullable = false, length = 20)
+    private String nplStage = "PERFORMING";
+
+    @Column(name = "last_billing_date")
+    private LocalDate lastBillingDate;
+
+    @Column(name = "next_billing_date")
+    private LocalDate nextBillingDate;
+
+    @Column(name = "expiry_date")
+    private LocalDate expiryDate;
+
+    @Column(name = "last_dpd_refresh")
+    private LocalDate lastDpdRefresh;
 
     @Column(name = "applied_at", nullable = false)
     private OffsetDateTime appliedAt;
@@ -71,5 +96,13 @@ public class OverdraftFacility {
     @PreUpdate
     void onUpdate() {
         updatedAt = OffsetDateTime.now();
+    }
+
+    /**
+     * Recalculates drawnAmount from principal + interest components.
+     * Call after modifying drawnPrincipal or accruedInterest.
+     */
+    public void recalculateDrawnAmount() {
+        this.drawnAmount = this.drawnPrincipal.add(this.accruedInterest);
     }
 }

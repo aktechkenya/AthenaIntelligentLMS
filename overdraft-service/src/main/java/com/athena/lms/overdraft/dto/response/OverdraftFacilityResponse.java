@@ -18,7 +18,11 @@ public class OverdraftFacilityResponse {
     private BigDecimal drawnAmount;
     private BigDecimal availableOverdraft;
     private BigDecimal interestRate;
+    private BigDecimal drawnPrincipal;
+    private BigDecimal accruedInterest;
     private String status;
+    private Integer dpd;
+    private String nplStage;
     private OffsetDateTime appliedAt;
     private OffsetDateTime approvedAt;
     private OffsetDateTime createdAt;

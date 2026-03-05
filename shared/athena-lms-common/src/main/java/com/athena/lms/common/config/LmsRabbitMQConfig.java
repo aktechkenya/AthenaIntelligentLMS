@@ -52,6 +52,7 @@ public class LmsRabbitMQConfig {
     public static final String BILL_ROUTING_PATTERN        = "bill.#";
     public static final String SAVINGS_ROUTING_PATTERN     = "savings.#";
     public static final String SHOP_ROUTING_PATTERN        = "shop.#";
+    public static final String OVERDRAFT_ROUTING_PATTERN   = "overdraft.#";
 
     @Bean
     public TopicExchange lmsExchange() {
@@ -143,6 +144,16 @@ public class LmsRabbitMQConfig {
     @Bean
     public Binding overdraftMobileBinding(Queue overdraftMobileQueue, TopicExchange lmsExchange) {
         return BindingBuilder.bind(overdraftMobileQueue).to(lmsExchange).with(MOBILE_ROUTING_PATTERN);
+    }
+
+    // ─── Overdraft bindings ─────────────────────────────────────────────────────
+    @Bean
+    public Binding accountingOverdraftBinding(Queue accountingQueue, TopicExchange lmsExchange) {
+        return BindingBuilder.bind(accountingQueue).to(lmsExchange).with(OVERDRAFT_ROUTING_PATTERN);
+    }
+    @Bean
+    public Binding collectionsOverdraftBinding(Queue collectionsQueue, TopicExchange lmsExchange) {
+        return BindingBuilder.bind(collectionsQueue).to(lmsExchange).with(OVERDRAFT_ROUTING_PATTERN);
     }
 
     // ─── Converters ────────────────────────────────────────────────────────────

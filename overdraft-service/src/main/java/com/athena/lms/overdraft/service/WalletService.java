@@ -9,10 +9,12 @@ import com.athena.lms.overdraft.dto.response.WalletResponse;
 import com.athena.lms.overdraft.dto.response.WalletTransactionResponse;
 import com.athena.lms.overdraft.entity.CustomerWallet;
 import com.athena.lms.overdraft.entity.OverdraftFacility;
+import com.athena.lms.overdraft.entity.OverdraftFee;
 import com.athena.lms.overdraft.entity.WalletTransaction;
 import com.athena.lms.overdraft.event.OverdraftEventPublisher;
 import com.athena.lms.overdraft.repository.CustomerWalletRepository;
 import com.athena.lms.overdraft.repository.OverdraftFacilityRepository;
+import com.athena.lms.overdraft.repository.OverdraftFeeRepository;
 import com.athena.lms.overdraft.repository.WalletTransactionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -36,7 +39,9 @@ public class WalletService {
     private final CustomerWalletRepository walletRepo;
     private final WalletTransactionRepository txRepo;
     private final OverdraftFacilityRepository facilityRepo;
+    private final OverdraftFeeRepository feeRepo;
     private final OverdraftEventPublisher eventPublisher;
+    private final AuditService auditService;
 
     public WalletResponse createWallet(CreateWalletRequest req, String tenantId) {
         if (walletRepo.existsByTenantIdAndCustomerId(tenantId, req.getCustomerId())) {
@@ -51,6 +56,10 @@ public class WalletService {
         wallet.setAvailableBalance(BigDecimal.ZERO);
         wallet.setStatus("ACTIVE");
         CustomerWallet saved = walletRepo.save(wallet);
+
+        auditService.audit(tenantId, "WALLET", saved.getId(), "CREATED",
+            null, Map.of("customerId", req.getCustomerId(), "accountNumber", saved.getAccountNumber()), null);
+
         log.info("Created wallet {} for customer {} tenant {}", saved.getId(), req.getCustomerId(), tenantId);
         return toResponse(saved);
     }
@@ -84,15 +93,51 @@ public class WalletService {
         BigDecimal balanceAfter = balanceBefore.add(req.getAmount());
         wallet.setCurrentBalance(balanceAfter);
 
+        BigDecimal interestRepaid = BigDecimal.ZERO;
+        BigDecimal principalRepaid = BigDecimal.ZERO;
+        BigDecimal feesRepaid = BigDecimal.ZERO;
+
         Optional<OverdraftFacility> facilityOpt = facilityRepo.findTopByWalletIdOrderByCreatedAtDesc(walletId);
         if (facilityOpt.isPresent()) {
             OverdraftFacility facility = facilityOpt.get();
             if ("ACTIVE".equals(facility.getStatus()) && facility.getDrawnAmount().compareTo(BigDecimal.ZERO) > 0) {
-                BigDecimal repayFromOverdraft = req.getAmount().min(facility.getDrawnAmount());
-                facility.setDrawnAmount(facility.getDrawnAmount().subtract(repayFromOverdraft));
+                BigDecimal remaining = req.getAmount().min(facility.getDrawnAmount());
+
+                // Waterfall: 1) Fees → 2) Accrued Interest → 3) Drawn Principal
+                // 1) Repay pending fees
+                List<OverdraftFee> pendingFees = feeRepo.findByFacilityIdAndStatus(facility.getId(), "PENDING");
+                for (OverdraftFee fee : pendingFees) {
+                    if (remaining.compareTo(BigDecimal.ZERO) <= 0) break;
+                    BigDecimal feePayment = remaining.min(fee.getAmount());
+                    feesRepaid = feesRepaid.add(feePayment);
+                    remaining = remaining.subtract(feePayment);
+                    fee.setStatus("CHARGED");
+                    feeRepo.save(fee);
+                }
+
+                // 2) Repay accrued interest
+                if (remaining.compareTo(BigDecimal.ZERO) > 0 && facility.getAccruedInterest().compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal intPayment = remaining.min(facility.getAccruedInterest());
+                    interestRepaid = intPayment;
+                    facility.setAccruedInterest(facility.getAccruedInterest().subtract(intPayment));
+                    remaining = remaining.subtract(intPayment);
+                }
+
+                // 3) Repay drawn principal
+                if (remaining.compareTo(BigDecimal.ZERO) > 0 && facility.getDrawnPrincipal().compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal princPayment = remaining.min(facility.getDrawnPrincipal());
+                    principalRepaid = princPayment;
+                    facility.setDrawnPrincipal(facility.getDrawnPrincipal().subtract(princPayment));
+                    remaining = remaining.subtract(princPayment);
+                }
+
+                facility.recalculateDrawnAmount();
                 facilityRepo.save(facility);
-                if (repayFromOverdraft.compareTo(BigDecimal.ZERO) > 0) {
-                    eventPublisher.publishOverdraftRepaid(walletId, wallet.getCustomerId(), repayFromOverdraft, tenantId);
+
+                BigDecimal totalRepaid = feesRepaid.add(interestRepaid).add(principalRepaid);
+                if (totalRepaid.compareTo(BigDecimal.ZERO) > 0) {
+                    eventPublisher.publishOverdraftRepaidDetailed(walletId, wallet.getCustomerId(),
+                        totalRepaid, interestRepaid, principalRepaid, feesRepaid, tenantId);
                 }
             }
             if ("ACTIVE".equals(facility.getStatus())) {
@@ -108,7 +153,14 @@ public class WalletService {
         walletRepo.save(wallet);
         WalletTransaction tx = buildTx(wallet, "DEPOSIT", req.getAmount(), balanceBefore, balanceAfter,
             req.getReference(), req.getDescription());
-        return toTxResponse(txRepo.save(tx));
+        WalletTransaction savedTx = txRepo.save(tx);
+
+        auditService.audit(tenantId, "WALLET", walletId, "DEPOSIT",
+            Map.of("balance", balanceBefore),
+            Map.of("balance", balanceAfter, "interestRepaid", interestRepaid, "principalRepaid", principalRepaid),
+            Map.of("amount", req.getAmount(), "reference", req.getReference()));
+
+        return toTxResponse(savedTx);
     }
 
     public WalletTransactionResponse withdraw(UUID walletId, WalletTransactionRequest req, String tenantId) {
@@ -140,7 +192,8 @@ public class WalletService {
                     BigDecimal previousOverdraft = balanceBefore.negate().max(BigDecimal.ZERO);
                     BigDecimal newOverdraft = balanceAfter.negate();
                     BigDecimal additionalDraw = newOverdraft.subtract(previousOverdraft);
-                    facility.setDrawnAmount(facility.getDrawnAmount().add(additionalDraw));
+                    facility.setDrawnPrincipal(facility.getDrawnPrincipal().add(additionalDraw));
+                    facility.recalculateDrawnAmount();
                     facilityRepo.save(facility);
                 }
                 BigDecimal overdraftHeadroom = facility.getApprovedLimit().subtract(facility.getDrawnAmount());
@@ -162,6 +215,12 @@ public class WalletService {
             BigDecimal actualDraw = balanceAfter.negate().subtract(previousOverdraft);
             eventPublisher.publishOverdraftDrawn(walletId, wallet.getCustomerId(), actualDraw, tenantId);
         }
+
+        auditService.audit(tenantId, "WALLET", walletId, "WITHDRAWAL",
+            Map.of("balance", balanceBefore),
+            Map.of("balance", balanceAfter),
+            Map.of("amount", req.getAmount(), "reference", req.getReference(), "overdraftDrawn", overdraftDrawn));
+
         return toTxResponse(saved);
     }
 
@@ -176,7 +235,8 @@ public class WalletService {
     private String generateAccountNumber(String customerId) {
         String cleaned = customerId.toUpperCase().replaceAll("[^A-Z0-9]", "");
         String prefix = cleaned.length() > 6 ? cleaned.substring(0, 6) : cleaned;
-        return "WLT-" + prefix + "-" + String.format("%04d", (int)(Math.random() * 10000));
+        String uniqueSuffix = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        return "WLT-" + prefix + "-" + uniqueSuffix;
     }
 
     private WalletTransaction buildTx(CustomerWallet wallet, String type, BigDecimal amount,
