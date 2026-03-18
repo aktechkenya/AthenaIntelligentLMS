@@ -186,3 +186,122 @@ kubectl -n lms get pods
 ./k8s/scripts/build-lms.sh <service-name>
 kubectl -n lms rollout restart deployment/<service-name>
 ```
+
+---
+
+## Local Development (Docker Compose)
+
+The Go services can be run locally alongside the ADF base infrastructure using Docker Compose overlays.
+
+### Prerequisites
+
+- Docker & Docker Compose v2
+- Node.js 18+ (for portal UI dev server)
+- The `AthenaCreditScore` repo cloned alongside this repo at `~/AthenaCreditScore`
+
+### Quick Start
+
+```bash
+# 1. Create the shared Docker network (one-time)
+docker network create athena-net
+
+# 2. Start base infrastructure + all 16 Go services
+cd ~/AthenaCreditScore
+docker compose -f docker-compose.yml \
+  -f ~/AthenaIntelligentLMS/docker-compose.go.yml up -d --build
+
+# 3. Start the portal UI dev server
+cd ~/AthenaIntelligentLMS/lms-portal-ui
+npm install
+npx vite --host 0.0.0.0 --port 3001
+```
+
+### Service Port Mapping (Docker Compose)
+
+Go services run on `28xxx` host ports (internal port unchanged):
+
+| Service | Internal Port | Host Port | Database |
+|---------|--------------|-----------|----------|
+| account-service | 8086 | 28086 | athena_accounts |
+| product-service | 8087 | 28087 | athena_products |
+| loan-origination-service | 8088 | 28088 | athena_loans |
+| loan-management-service | 8089 | 28089 | athena_loans |
+| payment-service | 8090 | 28090 | athena_payments |
+| accounting-service | 8091 | 28091 | athena_accounting |
+| float-service | 8092 | 28092 | athena_float |
+| collections-service | 8093 | 28093 | athena_collections |
+| compliance-service | 8094 | 28094 | athena_compliance |
+| reporting-service | 8095 | 28095 | athena_reporting |
+| ai-scoring-service | 8096 | 28096 | athena_scoring |
+| overdraft-service | 8097 | 28097 | athena_overdraft |
+| media-service | 8098 | 28098 | athena_media |
+| notification-service | 8099 | 28099 | athena_notifications |
+| fraud-detection-service | 8100 | 28100 | athena_fraud |
+| lms-api-gateway | 8105 | 28105 | — |
+| portal-ui (Vite) | 3001 | 3001 | — |
+
+### Test Accounts
+
+All accounts use in-memory authentication (no database required):
+
+| Username | Password | Role | Description |
+|----------|----------|------|-------------|
+| `admin` | `admin123` | ADMIN | System Administrator — full access |
+| `admin@athena.com` | `admin123` | ADMIN | Same as above (email login) |
+| `manager` | `manager123` | MANAGER | Branch Manager |
+| `officer` | `officer123` | OFFICER | Loan Officer |
+| `teller@athena.com` | `teller123` | TELLER | Senior Teller |
+
+Passwords can be overridden via environment variables: `LMS_AUTH_ADMIN_PASSWORD`, `LMS_AUTH_MANAGER_PASSWORD`, `LMS_AUTH_OFFICER_PASSWORD`.
+
+### Populating Test Data
+
+```bash
+# Populate 100 customers with full lifecycle data (customers, accounts, loans,
+# payments, wallets, overdrafts, KYC, compliance alerts, media uploads)
+python3 scripts/populate-300-customers.py --count 100
+```
+
+The script targets `28xxx` ports (Go services). It creates data across all services:
+customers, savings accounts, loan applications through full lifecycle (submit → review → approve → disburse), repayments, wallets, overdraft facilities, KYC records, compliance alerts, payment records, and document uploads.
+
+### Vite Proxy Configuration
+
+The portal UI (`lms-portal-ui/vite.config.ts`) proxies API calls to Go services:
+
+| Frontend Path | Backend Target |
+|---------------|---------------|
+| `/proxy/auth/*` | `localhost:28086` (account-service) |
+| `/proxy/products/*` | `localhost:28087` (product-service) |
+| `/proxy/loan-applications/*` | `localhost:28088` (loan-origination) |
+| `/proxy/loans/*` | `localhost:28089` (loan-management) |
+| `/proxy/payments/*` | `localhost:28090` (payment-service) |
+| `/proxy/accounting/*` | `localhost:28091` (accounting-service) |
+| `/proxy/float/*` | `localhost:28092` (float-service) |
+| `/proxy/collections/*` | `localhost:28093` (collections-service) |
+| `/proxy/compliance/*` | `localhost:28094` (compliance-service) |
+| `/proxy/reporting/*` | `localhost:28095` (reporting-service) |
+| `/proxy/scoring/*` | `localhost:28096` (ai-scoring-service) |
+| `/proxy/fraud/*` | `localhost:28100` (fraud-detection) |
+
+### Credential Configuration
+
+The `docker-compose.go.yml` uses these defaults (matching the base `docker-compose.yml`):
+
+| Variable | Default |
+|----------|---------|
+| `POSTGRES_USER` | `athena` |
+| `POSTGRES_PASSWORD` | `athena_secret` |
+| `RABBITMQ_USER` | `athena` |
+| `RABBITMQ_PASS` | `athena_secret` |
+| `JWT_SECRET` | Set via `.env` file |
+
+### Checking Service Health
+
+```bash
+# Quick health check for all Go services
+for port in 28086 28087 28088 28089 28090 28091 28092 28093 28094 28095 28096 28097 28098 28099 28100 28105; do
+  status=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:$port/actuator/health 2>/dev/null || echo "DOWN")
+  echo "  :$port → $status"
+done
+```

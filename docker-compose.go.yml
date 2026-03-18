@@ -7,10 +7,12 @@
 x-go-env: &go-env
   RABBITMQ_HOST: rabbitmq
   RABBITMQ_PORT: 5672
-  RABBITMQ_USER: guest
-  RABBITMQ_PASSWORD: guest
+  RABBITMQ_USER: ${RABBITMQ_USER:-athena}
+  RABBITMQ_PASSWORD: ${RABBITMQ_PASS:-athena_secret}
   JWT_SECRET: ${JWT_SECRET}
   LMS_INTERNAL_SERVICE_KEY: ${LMS_INTERNAL_SERVICE_KEY:-athena-internal-key}
+  DB_USER: ${POSTGRES_USER:-athena}
+  DB_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
 
 services:
   go-account-service:

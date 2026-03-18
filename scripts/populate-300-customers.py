@@ -19,19 +19,19 @@ import requests
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 BASE = "http://localhost"
-ACCT   = f"{BASE}:18086"
-PROD   = f"{BASE}:18087"
-ORIG   = f"{BASE}:18088"
-LOAN   = f"{BASE}:18089"
-PAY    = f"{BASE}:18090"
-ACCTG  = f"{BASE}:18091"
-FLOAT  = f"{BASE}:18092"
-COLL   = f"{BASE}:18093"
-COMP   = f"{BASE}:18094"
-SCORE  = f"{BASE}:18096"
-OD     = f"{BASE}:18097"
-MEDIA  = f"{BASE}:18098"
-NOTIF  = f"{BASE}:18099"
+ACCT   = f"{BASE}:28086"
+PROD   = f"{BASE}:28087"
+ORIG   = f"{BASE}:28088"
+LOAN   = f"{BASE}:28089"
+PAY    = f"{BASE}:28090"
+ACCTG  = f"{BASE}:28091"
+FLOAT  = f"{BASE}:28092"
+COLL   = f"{BASE}:28093"
+COMP   = f"{BASE}:28094"
+SCORE  = f"{BASE}:28096"
+OD     = f"{BASE}:28097"
+MEDIA  = f"{BASE}:28098"
+NOTIF  = f"{BASE}:28099"
 TIMEOUT = 15
 
 FIRST_NAMES = [
