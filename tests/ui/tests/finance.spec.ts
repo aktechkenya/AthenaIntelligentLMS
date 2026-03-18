@@ -6,7 +6,7 @@ test.describe("Finance Pages", () => {
       page,
     }) => {
       await page.goto("/ledger");
-      await expect(page.getByText("General Ledger")).toBeVisible({
+      await expect(page.getByRole("heading", { name: /general ledger/i })).toBeVisible({
         timeout: 15_000,
       });
       await expect(

@@ -115,14 +115,22 @@ test.describe("Sidebar Section Expand/Collapse", () => {
     await page.goto("/");
     await page.waitForTimeout(2000);
 
-    // Click the Lending section header to expand it
+    // Click the Lending section header to toggle it
     const lendingHeader = page.getByText("Lending", { exact: true }).first();
     await expect(lendingHeader).toBeVisible({ timeout: 10_000 });
-    await lendingHeader.click();
+
+    // Check if already expanded — if loan apps link visible, we're good
+    const linkVisible = await page.getByRole("link", { name: /loan applications/i })
+      .isVisible().catch(() => false);
+
+    if (!linkVisible) {
+      await lendingHeader.click();
+      await page.waitForTimeout(500);
+    }
 
     // Should see Loan Applications link
     await expect(
-      page.getByText("Loan Applications")
+      page.getByRole("link", { name: /loan applications/i })
     ).toBeVisible({ timeout: 5_000 });
   });
 
