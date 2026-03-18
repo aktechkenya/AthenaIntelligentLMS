@@ -29,7 +29,7 @@ export class LoginPage {
     // Should navigate away from /login
     await this.page.waitForURL(/^(?!.*\/login)/, { timeout: 15_000 });
     await expect(
-      this.page.getByText("Overview Dashboard").or(this.page.getByText("AthenaLMS"))
+      this.page.getByRole("heading", { name: "Overview Dashboard" })
     ).toBeVisible({ timeout: 10_000 });
   }
 

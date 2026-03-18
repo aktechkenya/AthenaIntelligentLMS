@@ -1,14 +1,26 @@
-import { test as setup, expect } from "@playwright/test";
+import { chromium } from "@playwright/test";
 import path from "path";
+import fs from "fs";
 
 const STORAGE_STATE = path.join(__dirname, ".auth", "admin.json");
 
-setup("authenticate as admin", async ({ page }) => {
-  // Navigate to the login page
-  await page.goto("/login");
+async function globalSetup() {
+  const authDir = path.dirname(STORAGE_STATE);
+  if (!fs.existsSync(authDir)) {
+    fs.mkdirSync(authDir, { recursive: true });
+  }
 
-  // Wait for the login form to be visible
-  await expect(page.locator("form")).toBeVisible({ timeout: 15_000 });
+  const browser = await chromium.launch();
+  const context = await browser.newContext();
+  const page = await context.newPage();
+
+  // Navigate to login page and clear any existing session
+  await page.goto("http://localhost:3001/login");
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  // Wait for the login form
+  await page.waitForSelector("#email", { timeout: 15_000 });
 
   // Fill in credentials
   await page.locator("#email").fill("admin@athena.com");
@@ -17,17 +29,12 @@ setup("authenticate as admin", async ({ page }) => {
   // Click Sign In
   await page.getByRole("button", { name: /sign in/i }).click();
 
-  // Wait for navigation to the dashboard (URL becomes "/" or "/")
-  await page.waitForURL("/", { timeout: 15_000 }).catch(() => {
-    // Some setups redirect differently; wait for any non-login page
-    return page.waitForURL(/^(?!.*\/login)/, { timeout: 10_000 });
-  });
-
-  // Verify we are authenticated — sidebar or dashboard heading should be visible
-  await expect(
-    page.getByText("Overview Dashboard").or(page.getByText("AthenaLMS"))
-  ).toBeVisible({ timeout: 10_000 });
+  // Wait for navigation away from login
+  await page.waitForURL(/^(?!.*\/login)/, { timeout: 15_000 });
 
   // Save the authenticated storage state
-  await page.context().storageState({ path: STORAGE_STATE });
-});
+  await context.storageState({ path: STORAGE_STATE });
+  await browser.close();
+}
+
+export default globalSetup;

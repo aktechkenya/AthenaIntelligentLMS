@@ -23,30 +23,20 @@ export default defineConfig({
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
   },
+
+  globalSetup: require.resolve("./global-setup"),
   projects: [
-    {
-      name: "setup",
-      testMatch: /global-setup\.ts/,
-      teardown: "teardown",
-    },
-    {
-      name: "teardown",
-      testMatch: /global-teardown\.ts/,
-    },
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
-      dependencies: ["setup"],
     },
     {
       name: "firefox",
       use: { ...devices["Desktop Firefox"] },
-      dependencies: ["setup"],
     },
     {
       name: "webkit",
       use: { ...devices["Desktop Safari"] },
-      dependencies: ["setup"],
     },
   ],
 });

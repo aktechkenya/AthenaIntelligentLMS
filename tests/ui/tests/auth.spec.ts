@@ -11,7 +11,7 @@ test.describe("Authentication", () => {
 
     // Verify we are on the dashboard
     await expect(page).toHaveURL("/");
-    await expect(page.getByText("Overview Dashboard")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Overview Dashboard" })).toBeVisible();
   });
 
   test("should show error on invalid credentials", async ({
@@ -66,7 +66,7 @@ test.describe("Authentication", () => {
     // Should still be on the dashboard (not redirected to login)
     await page.waitForURL(/^(?!.*\/login)/, { timeout: 10_000 });
     await expect(
-      page.getByText("Overview Dashboard").or(page.getByText("AthenaLMS"))
+      page.getByRole("heading", { name: "Overview Dashboard" })
     ).toBeVisible({ timeout: 10_000 });
   });
 
