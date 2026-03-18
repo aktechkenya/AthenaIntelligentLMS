@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
 
 	"github.com/athena-lms/go-services/internal/common/auth"
@@ -167,11 +166,11 @@ func (h *Handler) getSummary(w http.ResponseWriter, r *http.Request) {
 		summary.DoubtfulLoans = latest.DoubtfulLoans
 		summary.LossLoans = latest.LossLoans
 	} else {
-		summary.TotalDisbursed = decimal.Zero
-		summary.TotalOutstanding = decimal.Zero
-		summary.TotalCollected = decimal.Zero
-		summary.Par30 = decimal.Zero
-		summary.Par90 = decimal.Zero
+		summary.TotalDisbursed = 0
+		summary.TotalOutstanding = 0
+		summary.TotalCollected = 0
+		summary.Par30 = 0
+		summary.Par90 = 0
 	}
 
 	// Fetch today's metrics (logged, not included in response — matches Java)

@@ -100,52 +100,53 @@ type ReportEventResponse struct {
 }
 
 // PortfolioSnapshotResponse is the API response DTO for a portfolio snapshot.
+// Money fields use float64 for JSON number serialization (frontend compatibility).
 type PortfolioSnapshotResponse struct {
-	ID               uuid.UUID       `json:"id"`
-	TenantID         string          `json:"tenantId"`
-	SnapshotDate     string          `json:"snapshotDate"`
-	Period           string          `json:"period"`
-	TotalLoans       int             `json:"totalLoans"`
-	ActiveLoans      int             `json:"activeLoans"`
-	ClosedLoans      int             `json:"closedLoans"`
-	DefaultedLoans   int             `json:"defaultedLoans"`
-	TotalDisbursed   decimal.Decimal `json:"totalDisbursed"`
-	TotalOutstanding decimal.Decimal `json:"totalOutstanding"`
-	TotalCollected   decimal.Decimal `json:"totalCollected"`
-	WatchLoans       int             `json:"watchLoans"`
-	SubstandardLoans int             `json:"substandardLoans"`
-	DoubtfulLoans    int             `json:"doubtfulLoans"`
-	LossLoans        int             `json:"lossLoans"`
-	Par30            decimal.Decimal `json:"par30"`
-	Par90            decimal.Decimal `json:"par90"`
-	CreatedAt        time.Time       `json:"createdAt"`
+	ID               uuid.UUID `json:"id"`
+	TenantID         string    `json:"tenantId"`
+	SnapshotDate     string    `json:"snapshotDate"`
+	Period           string    `json:"period"`
+	TotalLoans       int       `json:"totalLoans"`
+	ActiveLoans      int       `json:"activeLoans"`
+	ClosedLoans      int       `json:"closedLoans"`
+	DefaultedLoans   int       `json:"defaultedLoans"`
+	TotalDisbursed   float64   `json:"totalDisbursed"`
+	TotalOutstanding float64   `json:"totalOutstanding"`
+	TotalCollected   float64   `json:"totalCollected"`
+	WatchLoans       int       `json:"watchLoans"`
+	SubstandardLoans int       `json:"substandardLoans"`
+	DoubtfulLoans    int       `json:"doubtfulLoans"`
+	LossLoans        int       `json:"lossLoans"`
+	Par30            float64   `json:"par30"`
+	Par90            float64   `json:"par90"`
+	CreatedAt        time.Time `json:"createdAt"`
 }
 
 // PortfolioSummaryResponse is the API response DTO for the portfolio summary.
 type PortfolioSummaryResponse struct {
-	TenantID         string          `json:"tenantId"`
-	AsOfDate         string          `json:"asOfDate"`
-	TotalLoans       int             `json:"totalLoans"`
-	ActiveLoans      int             `json:"activeLoans"`
-	ClosedLoans      int             `json:"closedLoans"`
-	DefaultedLoans   int             `json:"defaultedLoans"`
-	TotalDisbursed   decimal.Decimal `json:"totalDisbursed"`
-	TotalOutstanding decimal.Decimal `json:"totalOutstanding"`
-	TotalCollected   decimal.Decimal `json:"totalCollected"`
-	Par30            decimal.Decimal `json:"par30"`
-	Par90            decimal.Decimal `json:"par90"`
-	WatchLoans       int             `json:"watchLoans"`
-	SubstandardLoans int             `json:"substandardLoans"`
-	DoubtfulLoans    int             `json:"doubtfulLoans"`
-	LossLoans        int             `json:"lossLoans"`
+	TenantID         string  `json:"tenantId"`
+	AsOfDate         string  `json:"asOfDate"`
+	TotalLoans       int     `json:"totalLoans"`
+	ActiveLoans      int     `json:"activeLoans"`
+	ClosedLoans      int     `json:"closedLoans"`
+	DefaultedLoans   int     `json:"defaultedLoans"`
+	TotalDisbursed   float64 `json:"totalDisbursed"`
+	TotalOutstanding float64 `json:"totalOutstanding"`
+	TotalCollected   float64 `json:"totalCollected"`
+	Par30            float64 `json:"par30"`
+	Par90            float64 `json:"par90"`
+	WatchLoans       int     `json:"watchLoans"`
+	SubstandardLoans int     `json:"substandardLoans"`
+	DoubtfulLoans    int     `json:"doubtfulLoans"`
+	LossLoans        int     `json:"lossLoans"`
 }
 
 // EventMetricResponse is the API response DTO for an event metric.
 type EventMetricResponse struct {
-	MetricDate  string          `json:"metricDate"`
-	EventType   string          `json:"eventType"`
-	EventCount  int64           `json:"eventCount"`
-	TotalAmount decimal.Decimal `json:"totalAmount"`
+	MetricDate  string  `json:"metricDate"`
+	EventType   string  `json:"eventType"`
+	EventCount  int64   `json:"eventCount"`
+	TotalAmount float64 `json:"totalAmount"`
 }
 
 // ToResponse converts a ReportEvent to its API response.
@@ -178,15 +179,15 @@ func (s *PortfolioSnapshot) ToResponse() PortfolioSnapshotResponse {
 		ActiveLoans:      s.ActiveLoans,
 		ClosedLoans:      s.ClosedLoans,
 		DefaultedLoans:   s.DefaultedLoans,
-		TotalDisbursed:   s.TotalDisbursed,
-		TotalOutstanding: s.TotalOutstanding,
-		TotalCollected:   s.TotalCollected,
+		TotalDisbursed:   s.TotalDisbursed.InexactFloat64(),
+		TotalOutstanding: s.TotalOutstanding.InexactFloat64(),
+		TotalCollected:   s.TotalCollected.InexactFloat64(),
 		WatchLoans:       s.WatchLoans,
 		SubstandardLoans: s.SubstandardLoans,
 		DoubtfulLoans:    s.DoubtfulLoans,
 		LossLoans:        s.LossLoans,
-		Par30:            s.Par30,
-		Par90:            s.Par90,
+		Par30:            s.Par30.InexactFloat64(),
+		Par90:            s.Par90.InexactFloat64(),
 		CreatedAt:        s.CreatedAt,
 	}
 }
@@ -197,6 +198,6 @@ func (m *EventMetric) ToResponse() EventMetricResponse {
 		MetricDate:  m.MetricDate.Format("2006-01-02"),
 		EventType:   m.EventType,
 		EventCount:  m.EventCount,
-		TotalAmount: m.TotalAmount,
+		TotalAmount: m.TotalAmount.InexactFloat64(),
 	}
 }

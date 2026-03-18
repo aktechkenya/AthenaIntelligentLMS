@@ -117,7 +117,7 @@ type ApplicationCollateral struct {
 	EstimatedValue decimal.Decimal `json:"estimatedValue"`
 	Currency       string          `json:"currency"`
 	DocumentRef    *string         `json:"documentRef"`
-	CreatedAt      time.Time       `json:"createdAt"`
+	CreatedAt      *time.Time      `json:"createdAt"`
 }
 
 // ApplicationNote represents a note attached to a loan application.
@@ -128,7 +128,7 @@ type ApplicationNote struct {
 	NoteType      string    `json:"noteType"`
 	Content       string    `json:"content"`
 	AuthorID      *string   `json:"authorId"`
-	CreatedAt     time.Time `json:"createdAt"`
+	CreatedAt     *time.Time `json:"createdAt"`
 }
 
 // ApplicationStatusHistory represents a status change record.
@@ -140,7 +140,7 @@ type ApplicationStatusHistory struct {
 	ToStatus      string    `json:"toStatus"`
 	Reason        *string   `json:"reason"`
 	ChangedBy     *string   `json:"changedBy"`
-	ChangedAt     time.Time `json:"changedAt"`
+	ChangedAt     *time.Time `json:"changedAt"`
 }
 
 // ---- Request DTOs ----
@@ -229,7 +229,7 @@ type CollateralResponse struct {
 	EstimatedValue decimal.Decimal `json:"estimatedValue"`
 	Currency       string          `json:"currency"`
 	DocumentRef    *string         `json:"documentRef"`
-	CreatedAt      time.Time       `json:"createdAt"`
+	CreatedAt      *time.Time      `json:"createdAt"`
 }
 
 // NoteResponse is the response DTO for an application note.
@@ -238,7 +238,7 @@ type NoteResponse struct {
 	NoteType  string    `json:"noteType"`
 	Content   string    `json:"content"`
 	AuthorID  *string   `json:"authorId"`
-	CreatedAt time.Time `json:"createdAt"`
+	CreatedAt *time.Time `json:"createdAt"`
 }
 
 // StatusHistoryResponse is the response DTO for a status change record.
@@ -248,7 +248,7 @@ type StatusHistoryResponse struct {
 	ToStatus   string    `json:"toStatus"`
 	Reason     *string   `json:"reason"`
 	ChangedBy  *string   `json:"changedBy"`
-	ChangedAt  time.Time `json:"changedAt"`
+	ChangedAt  *time.Time `json:"changedAt"`
 }
 
 // PageResponse is a generic paginated response.
