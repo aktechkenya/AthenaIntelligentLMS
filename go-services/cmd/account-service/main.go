@@ -12,9 +12,14 @@ import (
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 
+	"github.com/athena-lms/go-services/internal/account/event"
+	"github.com/athena-lms/go-services/internal/account/handler"
+	"github.com/athena-lms/go-services/internal/account/repository"
+	"github.com/athena-lms/go-services/internal/account/service"
 	"github.com/athena-lms/go-services/internal/common/auth"
 	"github.com/athena-lms/go-services/internal/common/config"
 	"github.com/athena-lms/go-services/internal/common/db"
+	commonevent "github.com/athena-lms/go-services/internal/common/event"
 	commonmw "github.com/athena-lms/go-services/internal/common/middleware"
 	"github.com/athena-lms/go-services/internal/common/rabbitmq"
 )
@@ -65,10 +70,31 @@ func main() {
 		}
 	}
 
+	// Event publisher
+	pub, err := commonevent.NewPublisher(rmqConn, logger)
+	if err != nil {
+		logger.Warn("Event publisher unavailable", zap.Error(err))
+	}
+	defer pub.Close()
+	acctPub := event.NewPublisher(pub, logger)
+
+	// Service wiring
+	repo := repository.New(pool)
+	accountSvc := service.NewAccountService(repo, acctPub, logger)
+	customerSvc := service.NewCustomerService(repo, acctPub, logger)
+	transferSvc := service.NewTransferService(repo, acctPub, logger, "", cfg.InternalServiceKey)
+	hdlr := handler.New(accountSvc, customerSvc, transferSvc, logger)
+
 	// JWT
 	jwtUtil, err := auth.NewJWTUtil(cfg.JWTSecret)
 	if err != nil {
 		logger.Fatal("Failed to initialize JWT", zap.Error(err))
+	}
+
+	// Auth handler (login — unauthenticated)
+	authHandler, err := handler.NewAuthHandler(cfg.JWTSecret, logger)
+	if err != nil {
+		logger.Fatal("Failed to initialize auth handler", zap.Error(err))
 	}
 
 	// Router
@@ -76,17 +102,21 @@ func main() {
 	r.Use(commonmw.Recovery(logger))
 	r.Use(commonmw.Logging(logger, cfg.ServiceName))
 
-	// Health endpoint (unauthenticated — used by Docker healthcheck)
+	// Health endpoint (unauthenticated)
 	r.Get("/actuator/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"UP"}`))
 	})
 
+	// Auth endpoints (unauthenticated)
+	r.Post("/api/auth/login", authHandler.Login)
+
 	// Protected routes
 	authMw := auth.NewMiddleware(jwtUtil, cfg.InternalServiceKey, logger)
 	r.Group(func(r chi.Router) {
 		r.Use(authMw.Handler)
-		// TODO: register account handlers here
+		r.Get("/api/auth/me", authHandler.Me)
+		hdlr.RegisterRoutes(r)
 	})
 
 	// Server
