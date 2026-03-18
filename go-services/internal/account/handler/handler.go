@@ -11,6 +11,8 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
+	"github.com/athena-lms/go-services/internal/account/model"
+	"github.com/athena-lms/go-services/internal/account/repository"
 	"github.com/athena-lms/go-services/internal/account/service"
 	"github.com/athena-lms/go-services/internal/common/auth"
 	"github.com/athena-lms/go-services/internal/common/errors"
@@ -22,12 +24,18 @@ type Handler struct {
 	accountSvc  *service.AccountService
 	customerSvc *service.CustomerService
 	transferSvc *service.TransferService
+	repo        *repository.Repository
 	logger      *zap.Logger
 }
 
 // New creates a new Handler.
 func New(accountSvc *service.AccountService, customerSvc *service.CustomerService, transferSvc *service.TransferService, logger *zap.Logger) *Handler {
 	return &Handler{accountSvc: accountSvc, customerSvc: customerSvc, transferSvc: transferSvc, logger: logger}
+}
+
+// NewWithRepo creates a new Handler with direct repository access (needed for org settings).
+func NewWithRepo(accountSvc *service.AccountService, customerSvc *service.CustomerService, transferSvc *service.TransferService, repo *repository.Repository, logger *zap.Logger) *Handler {
+	return &Handler{accountSvc: accountSvc, customerSvc: customerSvc, transferSvc: transferSvc, repo: repo, logger: logger}
 }
 
 // RegisterRoutes registers all account service routes.
@@ -59,6 +67,10 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Post("/", h.InitiateTransfer)
 		r.Get("/{id}", h.GetTransfer)
 		r.Get("/account/{accountId}", h.GetTransfersByAccount)
+	})
+	r.Route("/api/v1/organization", func(r chi.Router) {
+		r.Get("/settings", h.GetOrgSettings)
+		r.Put("/settings", h.UpdateOrgSettings)
 	})
 }
 
@@ -413,6 +425,75 @@ func (h *Handler) GetTransfersByAccount(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// --- Organization Settings ---
+
+func (h *Handler) GetOrgSettings(w http.ResponseWriter, r *http.Request) {
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	settings, err := h.repo.GetTenantSettings(r.Context(), tenantID)
+	if err != nil {
+		// If not found, return defaults
+		settings = &model.TenantSettings{
+			TenantID: tenantID,
+			Currency: "KES",
+			Timezone: "Africa/Nairobi",
+		}
+	}
+	httputil.WriteJSON(w, http.StatusOK, settings)
+}
+
+func (h *Handler) UpdateOrgSettings(w http.ResponseWriter, r *http.Request) {
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	var req struct {
+		OrgName     *string `json:"orgName"`
+		CountryCode *string `json:"countryCode"`
+		Currency    *string `json:"currency"`
+		Timezone    *string `json:"timezone"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+
+	// Start from existing or defaults
+	settings, err := h.repo.GetTenantSettings(r.Context(), tenantID)
+	if err != nil {
+		settings = &model.TenantSettings{
+			TenantID: tenantID,
+			Currency: "KES",
+			Timezone: "Africa/Nairobi",
+		}
+	}
+
+	// Apply updates
+	if req.OrgName != nil {
+		settings.OrgName = req.OrgName
+	}
+	if req.CountryCode != nil {
+		settings.CountryCode = req.CountryCode
+	}
+	if req.Currency != nil {
+		settings.Currency = *req.Currency
+	}
+	if req.Timezone != nil {
+		settings.Timezone = *req.Timezone
+	}
+
+	if err := h.repo.UpsertTenantSettings(r.Context(), settings); err != nil {
+		h.logger.Error("Failed to update tenant settings", zap.Error(err))
+		httputil.WriteInternalError(w, "Failed to save settings", r.URL.Path)
+		return
+	}
+
+	// Re-read to get the full record with timestamps
+	saved, err := h.repo.GetTenantSettings(r.Context(), tenantID)
+	if err != nil {
+		h.logger.Error("Failed to read back tenant settings", zap.Error(err))
+		httputil.WriteJSON(w, http.StatusOK, settings)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, saved)
 }
 
 // --- Helpers ---
