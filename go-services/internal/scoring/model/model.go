@@ -72,10 +72,10 @@ type ScoringRequest struct {
 	LoanApplicationID string         `json:"loanApplicationId"`
 	CustomerID        int64          `json:"customerId"`
 	Status            ScoringStatus  `json:"status"`
-	TriggerEvent      string         `json:"triggerEvent,omitempty"`
+	TriggerEvent      *string        `json:"triggerEvent,omitempty"`
 	RequestedAt       time.Time      `json:"requestedAt"`
 	CompletedAt       *time.Time     `json:"completedAt,omitempty"`
-	ErrorMessage      string         `json:"errorMessage,omitempty"`
+	ErrorMessage      *string        `json:"errorMessage,omitempty"`
 	CreatedAt         time.Time      `json:"createdAt"`
 	UpdatedAt         time.Time      `json:"updatedAt"`
 }
@@ -108,7 +108,7 @@ type ScoringRequestResponse struct {
 	LoanApplicationID string        `json:"loanApplicationId"`
 	CustomerID        int64         `json:"customerId"`
 	Status            ScoringStatus `json:"status"`
-	TriggerEvent      string        `json:"triggerEvent,omitempty"`
+	TriggerEvent      *string       `json:"triggerEvent,omitempty"`
 	RequestedAt       time.Time     `json:"requestedAt"`
 	CompletedAt       *time.Time    `json:"completedAt,omitempty"`
 	ErrorMessage      string        `json:"errorMessage,omitempty"`

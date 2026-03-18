@@ -56,7 +56,7 @@ func (s *Service) TriggerScoring(ctx context.Context, loanApplicationID string, 
 			TenantID:          tenantID,
 			LoanApplicationID: loanApplicationID,
 			CustomerID:        customerID,
-			TriggerEvent:      triggerEvent,
+			TriggerEvent:      &triggerEvent,
 			Status:            model.ScoringStatusPending,
 		}
 		if _, err := s.repo.CreateRequest(ctx, req); err != nil {
@@ -76,9 +76,9 @@ func (s *Service) TriggerScoring(ctx context.Context, loanApplicationID string, 
 	score, err := s.client.GetScore(ctx, customerID)
 	if err != nil || score == nil {
 		req.Status = model.ScoringStatusFailed
-		req.ErrorMessage = "Failed to retrieve score from AthenaCreditScore API"
+		errMsg := "Failed to retrieve score from AthenaCreditScore API"; req.ErrorMessage = &errMsg
 		if err != nil {
-			req.ErrorMessage = err.Error()
+			errStr := err.Error(); req.ErrorMessage = &errStr
 		}
 		if updateErr := s.repo.UpdateRequest(ctx, req); updateErr != nil {
 			s.logger.Error("Failed to update request to FAILED", zap.Error(updateErr))
@@ -116,7 +116,7 @@ func (s *Service) TriggerScoring(ctx context.Context, loanApplicationID string, 
 		s.logger.Error("Failed to save scoring result",
 			zap.String("loanApplicationId", loanApplicationID), zap.Error(err))
 		req.Status = model.ScoringStatusFailed
-		req.ErrorMessage = "Failed to save scoring result: " + err.Error()
+		saveErr := "Failed to save scoring result: " + err.Error(); req.ErrorMessage = &saveErr
 		s.repo.UpdateRequest(ctx, req)
 		return
 	}
@@ -218,7 +218,7 @@ func (s *Service) ManualScore(ctx context.Context, req *model.ManualScoringReque
 		LoanApplicationID: req.LoanApplicationID,
 		CustomerID:        req.CustomerID,
 		Status:            model.ScoringStatusPending,
-		TriggerEvent:      triggerEvent,
+		TriggerEvent:      &triggerEvent,
 	}
 
 	if _, err := s.repo.CreateRequest(ctx, scoringReq); err != nil {
@@ -249,7 +249,7 @@ func toRequestResponse(req *model.ScoringRequest) model.ScoringRequestResponse {
 		TriggerEvent:      req.TriggerEvent,
 		RequestedAt:       req.RequestedAt,
 		CompletedAt:       req.CompletedAt,
-		ErrorMessage:      req.ErrorMessage,
+		ErrorMessage:      strPtrVal(req.ErrorMessage),
 		CreatedAt:         req.CreatedAt,
 	}
 }
@@ -318,4 +318,9 @@ func parseScoredAt(s string) *time.Time {
 	}
 	now := time.Now().UTC()
 	return &now
+}
+
+func strPtrVal(s *string) string {
+	if s == nil { return "" }
+	return *s
 }
