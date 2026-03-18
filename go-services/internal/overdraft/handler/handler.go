@@ -31,7 +31,8 @@ func New(walletSvc *service.WalletService, auditSvc *service.AuditService, logge
 
 // RegisterRoutes registers all overdraft routes on the given router.
 func (h *Handler) RegisterRoutes(r chi.Router) {
-	r.Route("/api/v1/wallet", func(r chi.Router) {
+	// Wallet routes — support both /wallet (singular) and /wallets (plural)
+	walletRoutes := func(r chi.Router) {
 		r.Post("/", h.CreateWallet)
 		r.Get("/", h.ListWallets)
 		r.Get("/{id}", h.GetWallet)
@@ -39,10 +40,76 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Post("/{id}/deposit", h.Deposit)
 		r.Post("/{id}/withdraw", h.Withdraw)
 		r.Get("/{id}/transactions", h.GetTransactions)
-	})
+		r.Post("/{id}/overdraft/apply", h.ApplyOverdraft)
+		r.Get("/{id}/overdraft", h.GetOverdraftFacility)
+		r.Post("/{id}/overdraft/suspend", h.SuspendOverdraft)
+	}
+	r.Route("/api/v1/wallet", walletRoutes)
+	r.Route("/api/v1/wallets", walletRoutes)
+
 	r.Route("/api/v1/overdraft", func(r chi.Router) {
 		r.Get("/audit", h.GetAuditLog)
+		r.Get("/summary", h.GetOverdraftSummary)
 	})
+}
+
+// ApplyOverdraft handles POST /api/v1/wallets/{id}/overdraft/apply
+func (h *Handler) ApplyOverdraft(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid wallet ID", r.URL.Path)
+		return
+	}
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	resp, err := h.walletSvc.ApplyOverdraft(r.Context(), id, tenantID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusCreated, resp)
+}
+
+// GetOverdraftFacility handles GET /api/v1/wallets/{id}/overdraft
+func (h *Handler) GetOverdraftFacility(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid wallet ID", r.URL.Path)
+		return
+	}
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	resp, err := h.walletSvc.GetOverdraftFacility(r.Context(), id, tenantID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// SuspendOverdraft handles POST /api/v1/wallets/{id}/overdraft/suspend
+func (h *Handler) SuspendOverdraft(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid wallet ID", r.URL.Path)
+		return
+	}
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	resp, err := h.walletSvc.SuspendOverdraft(r.Context(), id, tenantID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// GetOverdraftSummary handles GET /api/v1/overdraft/summary
+func (h *Handler) GetOverdraftSummary(w http.ResponseWriter, r *http.Request) {
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	resp, err := h.walletSvc.GetSummary(r.Context(), tenantID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 
 // CreateWallet handles POST /api/v1/wallet

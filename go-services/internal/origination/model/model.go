@@ -101,8 +101,8 @@ type LoanApplication struct {
 	ReviewerID          *string            `json:"reviewerId,omitempty"`
 	ReviewedAt          *time.Time         `json:"reviewedAt,omitempty"`
 	ReviewNotes         *string            `json:"reviewNotes"`
-	CreatedAt           time.Time          `json:"createdAt"`
-	UpdatedAt           time.Time          `json:"updatedAt"`
+	CreatedAt           *time.Time         `json:"createdAt"`
+	UpdatedAt           *time.Time         `json:"updatedAt"`
 	CreatedBy           *string            `json:"createdBy,omitempty"`
 	UpdatedBy           *string            `json:"updatedBy,omitempty"`
 }
@@ -214,8 +214,8 @@ type ApplicationResponse struct {
 	DisbursedAt         *time.Time                 `json:"disbursedAt"`
 	DisbursementAccount *string                    `json:"disbursementAccount"`
 	ReviewNotes         *string                    `json:"reviewNotes"`
-	CreatedAt           time.Time                  `json:"createdAt"`
-	UpdatedAt           time.Time                  `json:"updatedAt"`
+	CreatedAt           *time.Time                 `json:"createdAt"`
+	UpdatedAt           *time.Time                 `json:"updatedAt"`
 	Collaterals         []CollateralResponse       `json:"collaterals"`
 	Notes               []NoteResponse             `json:"notes"`
 	StatusHistory       []StatusHistoryResponse    `json:"statusHistory"`

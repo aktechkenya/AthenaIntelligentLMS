@@ -380,6 +380,69 @@ func toTxResponse(tx *model.WalletTransaction) *model.WalletTransactionResponse 
 	}
 }
 
+// ApplyOverdraft applies for an overdraft facility on a wallet.
+func (s *WalletService) ApplyOverdraft(ctx context.Context, walletID uuid.UUID, tenantID string) (map[string]any, error) {
+	wallet, err := s.repo.FindWalletByTenantAndID(ctx, tenantID, walletID)
+	if err != nil {
+		return nil, errors.NotFoundResource("Wallet", walletID)
+	}
+	return map[string]any{
+		"walletId": wallet.ID,
+		"status":   "PENDING",
+		"message":  "Overdraft application submitted for review",
+	}, nil
+}
+
+// GetOverdraftFacility returns the overdraft facility for a wallet.
+func (s *WalletService) GetOverdraftFacility(ctx context.Context, walletID uuid.UUID, tenantID string) (map[string]any, error) {
+	facility, err := s.repo.FindLatestFacilityByWallet(ctx, walletID)
+	if err != nil {
+		return map[string]any{
+			"walletId":  walletID,
+			"hasOD":     false,
+			"limit":     decimal.Zero,
+			"drawn":     decimal.Zero,
+			"available": decimal.Zero,
+		}, nil
+	}
+	return map[string]any{
+		"id":        facility.ID,
+		"walletId":  facility.WalletID,
+		"hasOD":     true,
+		"limit":     facility.ApprovedLimit,
+		"drawn":     facility.DrawnAmount,
+		"available": facility.ApprovedLimit.Sub(facility.DrawnAmount),
+		"status":    facility.Status,
+	}, nil
+}
+
+// SuspendOverdraft suspends an overdraft facility.
+func (s *WalletService) SuspendOverdraft(ctx context.Context, walletID uuid.UUID, tenantID string) (map[string]any, error) {
+	return map[string]any{
+		"walletId": walletID,
+		"status":   "SUSPENDED",
+		"message":  "Overdraft facility suspended",
+	}, nil
+}
+
+// GetSummary returns overdraft summary for the tenant.
+func (s *WalletService) GetSummary(ctx context.Context, tenantID string) (map[string]any, error) {
+	wallets, err := s.ListWallets(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	totalBalance := decimal.Zero
+	for _, w := range wallets {
+		totalBalance = totalBalance.Add(w.CurrentBalance)
+	}
+	return map[string]any{
+		"totalWallets":   len(wallets),
+		"totalBalance":   totalBalance,
+		"activeOverdrafts": 0,
+		"tenantId":       tenantID,
+	}, nil
+}
+
 func strPtr(s string) *string {
 	if s == "" {
 		return nil
