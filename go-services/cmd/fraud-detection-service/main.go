@@ -17,6 +17,9 @@ import (
 	"github.com/athena-lms/go-services/internal/common/db"
 	commonmw "github.com/athena-lms/go-services/internal/common/middleware"
 	"github.com/athena-lms/go-services/internal/common/rabbitmq"
+	"github.com/athena-lms/go-services/internal/fraud/handler"
+	"github.com/athena-lms/go-services/internal/fraud/repository"
+	"github.com/athena-lms/go-services/internal/fraud/service"
 )
 
 func main() {
@@ -71,6 +74,11 @@ func main() {
 		logger.Fatal("Failed to initialize JWT", zap.Error(err))
 	}
 
+	// Wire up fraud detection components
+	repo := repository.New(pool)
+	svc := service.New(repo, logger)
+	h := handler.New(svc, logger)
+
 	// Router
 	r := chi.NewRouter()
 	r.Use(commonmw.Recovery(logger))
@@ -86,7 +94,7 @@ func main() {
 	authMw := auth.NewMiddleware(jwtUtil, cfg.InternalServiceKey, logger)
 	r.Group(func(r chi.Router) {
 		r.Use(authMw.Handler)
-		// TODO: register fraud detection handlers here
+		h.RegisterRoutes(r)
 	})
 
 	// Server

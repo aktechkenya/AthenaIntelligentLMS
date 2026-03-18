@@ -15,8 +15,13 @@ import (
 	"github.com/athena-lms/go-services/internal/common/auth"
 	"github.com/athena-lms/go-services/internal/common/config"
 	"github.com/athena-lms/go-services/internal/common/db"
+	"github.com/athena-lms/go-services/internal/common/event"
 	commonmw "github.com/athena-lms/go-services/internal/common/middleware"
 	"github.com/athena-lms/go-services/internal/common/rabbitmq"
+	ovevent "github.com/athena-lms/go-services/internal/overdraft/event"
+	"github.com/athena-lms/go-services/internal/overdraft/handler"
+	"github.com/athena-lms/go-services/internal/overdraft/repository"
+	"github.com/athena-lms/go-services/internal/overdraft/service"
 )
 
 func main() {
@@ -65,11 +70,25 @@ func main() {
 		}
 	}
 
+	// Event publisher
+	pub, err := event.NewPublisher(rmqConn, logger)
+	if err != nil {
+		logger.Warn("Event publisher unavailable (RabbitMQ not connected)", zap.Error(err))
+	}
+	defer pub.Close()
+
 	// JWT
 	jwtUtil, err := auth.NewJWTUtil(cfg.JWTSecret)
 	if err != nil {
 		logger.Fatal("Failed to initialize JWT", zap.Error(err))
 	}
+
+	// Wire up overdraft components
+	repo := repository.New(pool)
+	ovPublisher := ovevent.NewPublisher(pub, logger)
+	auditSvc := service.NewAuditService(repo, logger)
+	walletSvc := service.NewWalletService(repo, ovPublisher, auditSvc, logger)
+	h := handler.New(walletSvc, auditSvc, logger)
 
 	// Router
 	r := chi.NewRouter()
@@ -86,7 +105,7 @@ func main() {
 	authMw := auth.NewMiddleware(jwtUtil, cfg.InternalServiceKey, logger)
 	r.Group(func(r chi.Router) {
 		r.Use(authMw.Handler)
-		// TODO: register overdraft handlers here
+		h.RegisterRoutes(r)
 	})
 
 	// Server

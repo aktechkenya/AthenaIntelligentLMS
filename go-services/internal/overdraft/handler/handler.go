@@ -1,0 +1,238 @@
+package handler
+
+import (
+	"encoding/json"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"go.uber.org/zap"
+
+	"github.com/athena-lms/go-services/internal/common/auth"
+	cerrors "github.com/athena-lms/go-services/internal/common/errors"
+	"github.com/athena-lms/go-services/internal/common/httputil"
+	"github.com/athena-lms/go-services/internal/overdraft/model"
+	"github.com/athena-lms/go-services/internal/overdraft/service"
+)
+
+// Handler handles HTTP requests for the overdraft service.
+type Handler struct {
+	walletSvc *service.WalletService
+	auditSvc  *service.AuditService
+	logger    *zap.Logger
+}
+
+// New creates a new Handler.
+func New(walletSvc *service.WalletService, auditSvc *service.AuditService, logger *zap.Logger) *Handler {
+	return &Handler{walletSvc: walletSvc, auditSvc: auditSvc, logger: logger}
+}
+
+// RegisterRoutes registers all overdraft routes on the given router.
+func (h *Handler) RegisterRoutes(r chi.Router) {
+	r.Route("/api/v1/wallet", func(r chi.Router) {
+		r.Post("/", h.CreateWallet)
+		r.Get("/", h.ListWallets)
+		r.Get("/{id}", h.GetWallet)
+		r.Get("/customer/{customerId}", h.GetWalletByCustomer)
+		r.Post("/{id}/deposit", h.Deposit)
+		r.Post("/{id}/withdraw", h.Withdraw)
+		r.Get("/{id}/transactions", h.GetTransactions)
+	})
+	r.Route("/api/v1/overdraft", func(r chi.Router) {
+		r.Get("/audit", h.GetAuditLog)
+	})
+}
+
+// CreateWallet handles POST /api/v1/wallet
+func (h *Handler) CreateWallet(w http.ResponseWriter, r *http.Request) {
+	var req model.CreateWalletRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body: "+err.Error(), r.URL.Path)
+		return
+	}
+
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	resp, err := h.walletSvc.CreateWallet(r.Context(), req, tenantID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusCreated, resp)
+}
+
+// ListWallets handles GET /api/v1/wallet
+func (h *Handler) ListWallets(w http.ResponseWriter, r *http.Request) {
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	resp, err := h.walletSvc.ListWallets(r.Context(), tenantID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// GetWallet handles GET /api/v1/wallet/{id}
+func (h *Handler) GetWallet(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid wallet ID", r.URL.Path)
+		return
+	}
+
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	resp, err := h.walletSvc.GetWallet(r.Context(), id, tenantID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// GetWalletByCustomer handles GET /api/v1/wallet/customer/{customerId}
+func (h *Handler) GetWalletByCustomer(w http.ResponseWriter, r *http.Request) {
+	customerID := chi.URLParam(r, "customerId")
+	tenantID := auth.TenantIDOrDefault(r.Context())
+
+	resp, err := h.walletSvc.GetWalletByCustomer(r.Context(), customerID, tenantID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// Deposit handles POST /api/v1/wallet/{id}/deposit
+func (h *Handler) Deposit(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid wallet ID", r.URL.Path)
+		return
+	}
+
+	var req model.WalletTransactionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body: "+err.Error(), r.URL.Path)
+		return
+	}
+
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	resp, err := h.walletSvc.Deposit(r.Context(), id, req, tenantID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// Withdraw handles POST /api/v1/wallet/{id}/withdraw
+func (h *Handler) Withdraw(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid wallet ID", r.URL.Path)
+		return
+	}
+
+	var req model.WalletTransactionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body: "+err.Error(), r.URL.Path)
+		return
+	}
+
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	resp, err := h.walletSvc.Withdraw(r.Context(), id, req, tenantID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// GetTransactions handles GET /api/v1/wallet/{id}/transactions
+func (h *Handler) GetTransactions(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid wallet ID", r.URL.Path)
+		return
+	}
+
+	tenantID := auth.TenantIDOrDefault(r.Context())
+
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
+	if size <= 0 {
+		size = 20
+	}
+
+	resp, err := h.walletSvc.GetTransactions(r.Context(), id, tenantID, page, size)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// GetAuditLog handles GET /api/v1/overdraft/audit
+func (h *Handler) GetAuditLog(w http.ResponseWriter, r *http.Request) {
+	tenantID := auth.TenantIDOrDefault(r.Context())
+
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
+	if size <= 0 {
+		size = 20
+	}
+
+	var entityType *string
+	if et := r.URL.Query().Get("entityType"); et != "" {
+		entityType = &et
+	}
+
+	var entityID *uuid.UUID
+	if eid := r.URL.Query().Get("entityId"); eid != "" {
+		parsed, err := uuid.Parse(eid)
+		if err == nil {
+			entityID = &parsed
+		}
+	}
+
+	resp, err := h.auditSvc.GetAuditLog(r.Context(), tenantID, entityType, entityID, page, size)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// ---- helpers ----
+
+func (h *Handler) handleError(w http.ResponseWriter, r *http.Request, err error) {
+	switch e := err.(type) {
+	case *cerrors.NotFoundError:
+		httputil.WriteNotFound(w, e.Message, r.URL.Path)
+	case *cerrors.BusinessError:
+		if e.StatusCode == http.StatusBadRequest {
+			httputil.WriteBadRequest(w, e.Message, r.URL.Path)
+		} else if e.StatusCode == http.StatusConflict {
+			httputil.WriteConflict(w, e.Message, r.URL.Path)
+		} else {
+			httputil.WriteUnprocessable(w, e.Message, r.URL.Path)
+		}
+	default:
+		msg := err.Error()
+		if strings.Contains(msg, "not found") {
+			httputil.WriteNotFound(w, msg, r.URL.Path)
+			return
+		}
+		h.logger.Error("Internal error", zap.Error(err), zap.String("path", r.URL.Path))
+		httputil.WriteInternalError(w, "Internal server error", r.URL.Path)
+	}
+}

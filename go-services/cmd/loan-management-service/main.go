@@ -15,8 +15,14 @@ import (
 	"github.com/athena-lms/go-services/internal/common/auth"
 	"github.com/athena-lms/go-services/internal/common/config"
 	"github.com/athena-lms/go-services/internal/common/db"
+	"github.com/athena-lms/go-services/internal/common/event"
 	commonmw "github.com/athena-lms/go-services/internal/common/middleware"
 	"github.com/athena-lms/go-services/internal/common/rabbitmq"
+	"github.com/athena-lms/go-services/internal/management/consumer"
+	mgmtevent "github.com/athena-lms/go-services/internal/management/event"
+	"github.com/athena-lms/go-services/internal/management/handler"
+	"github.com/athena-lms/go-services/internal/management/repository"
+	"github.com/athena-lms/go-services/internal/management/service"
 )
 
 func main() {
@@ -65,11 +71,33 @@ func main() {
 		}
 	}
 
+	// Event publisher
+	pub, err := event.NewPublisher(rmqConn, logger)
+	if err != nil {
+		logger.Warn("Event publisher unavailable (RabbitMQ not connected)", zap.Error(err))
+	}
+	defer pub.Close()
+
 	// JWT
 	jwtUtil, err := auth.NewJWTUtil(cfg.JWTSecret)
 	if err != nil {
 		logger.Fatal("Failed to initialize JWT", zap.Error(err))
 	}
+
+	// Wire up management components
+	repo := repository.New(pool)
+	schedGen := service.NewScheduleGenerator()
+	mgmtPublisher := mgmtevent.NewManagementPublisher(pub, logger)
+	svc := service.New(repo, schedGen, mgmtPublisher, logger)
+	h := handler.New(svc, logger)
+
+	// Consumer for loan.disbursed events
+	cons := consumer.NewLoanDisbursedConsumer(rmqConn, svc, logger)
+	go func() {
+		if err := cons.Start(ctx); err != nil {
+			logger.Error("Loan management consumer stopped", zap.Error(err))
+		}
+	}()
 
 	// Router
 	r := chi.NewRouter()
@@ -86,7 +114,7 @@ func main() {
 	authMw := auth.NewMiddleware(jwtUtil, cfg.InternalServiceKey, logger)
 	r.Group(func(r chi.Router) {
 		r.Use(authMw.Handler)
-		// TODO: register loan management handlers here
+		h.RegisterRoutes(r)
 	})
 
 	// Server

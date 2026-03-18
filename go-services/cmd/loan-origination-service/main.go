@@ -15,8 +15,14 @@ import (
 	"github.com/athena-lms/go-services/internal/common/auth"
 	"github.com/athena-lms/go-services/internal/common/config"
 	"github.com/athena-lms/go-services/internal/common/db"
+	"github.com/athena-lms/go-services/internal/common/event"
 	commonmw "github.com/athena-lms/go-services/internal/common/middleware"
 	"github.com/athena-lms/go-services/internal/common/rabbitmq"
+	origclient "github.com/athena-lms/go-services/internal/origination/client"
+	origevent "github.com/athena-lms/go-services/internal/origination/event"
+	"github.com/athena-lms/go-services/internal/origination/handler"
+	"github.com/athena-lms/go-services/internal/origination/repository"
+	"github.com/athena-lms/go-services/internal/origination/service"
 )
 
 func main() {
@@ -65,11 +71,26 @@ func main() {
 		}
 	}
 
+	// Event publisher
+	pub, err := event.NewPublisher(rmqConn, logger)
+	if err != nil {
+		logger.Warn("Event publisher unavailable (RabbitMQ not connected)", zap.Error(err))
+	}
+	defer pub.Close()
+
 	// JWT
 	jwtUtil, err := auth.NewJWTUtil(cfg.JWTSecret)
 	if err != nil {
 		logger.Fatal("Failed to initialize JWT", zap.Error(err))
 	}
+
+	// Wire up origination components
+	productBaseURL := envStr("PRODUCT_SERVICE_URL", "http://localhost:8087")
+	repo := repository.New(pool)
+	evtPublisher := origevent.NewPublisher(pub, logger)
+	productClient := origclient.NewProductClient(cfg.InternalServiceKey, productBaseURL, logger)
+	svc := service.New(repo, evtPublisher, productClient, logger)
+	h := handler.New(svc, logger)
 
 	// Router
 	r := chi.NewRouter()
@@ -86,7 +107,7 @@ func main() {
 	authMw := auth.NewMiddleware(jwtUtil, cfg.InternalServiceKey, logger)
 	r.Group(func(r chi.Router) {
 		r.Use(authMw.Handler)
-		// TODO: register loan origination handlers here
+		h.RegisterRoutes(r)
 	})
 
 	// Server

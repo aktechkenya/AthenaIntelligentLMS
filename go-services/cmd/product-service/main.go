@@ -17,6 +17,10 @@ import (
 	"github.com/athena-lms/go-services/internal/common/db"
 	commonmw "github.com/athena-lms/go-services/internal/common/middleware"
 	"github.com/athena-lms/go-services/internal/common/rabbitmq"
+	"github.com/athena-lms/go-services/internal/product/event"
+	"github.com/athena-lms/go-services/internal/product/handler"
+	"github.com/athena-lms/go-services/internal/product/repository"
+	"github.com/athena-lms/go-services/internal/product/service"
 )
 
 func main() {
@@ -82,11 +86,28 @@ func main() {
 		w.Write([]byte(`{"status":"UP"}`))
 	})
 
+	// Domain layers
+	repo := repository.New(pool)
+
+	var publisher *event.Publisher
+	if rmqConn.IsConnected() {
+		pub, err := event.NewPublisher(rmqConn, logger)
+		if err != nil {
+			logger.Warn("Failed to create event publisher", zap.Error(err))
+		} else {
+			publisher = pub
+			defer publisher.Close()
+		}
+	}
+
+	svc := service.New(repo, publisher, logger)
+	h := handler.New(svc, logger)
+
 	// Protected routes
 	authMw := auth.NewMiddleware(jwtUtil, cfg.InternalServiceKey, logger)
 	r.Group(func(r chi.Router) {
 		r.Use(authMw.Handler)
-		// TODO: register product handlers here
+		h.RegisterRoutes(r)
 	})
 
 	// Server

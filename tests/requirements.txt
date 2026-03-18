@@ -1,0 +1,5 @@
+pytest>=8.0
+requests>=2.31
+pytest-html>=4.1
+pytest-metadata>=3.0
+pytest-ordering>=0.6
