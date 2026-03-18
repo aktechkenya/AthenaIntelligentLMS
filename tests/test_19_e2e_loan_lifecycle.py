@@ -123,8 +123,9 @@ class TestLoanLifecycleE2E:
         repay_amount = float(first.get("totalDue", first.get("totalAmount", first.get("installmentAmount", 0))))
         assert repay_amount > 0, f"Invalid repayment amount: {repay_amount}"
 
-        r = requests.post(url("loan_management", f"/api/v1/loans/{loan_id}/repayments"),
-                          json={"amount": repay_amount, "paymentMethod": "CASH",
+        r = requests.post(url("loan_management", "/api/v1/repayments"),
+                          json={"loanId": loan_id, "amount": repay_amount,
+                                "paymentMethod": "CASH",
                                 "reference": unique_id("RPMT")},
                           headers=admin_headers, timeout=TIMEOUT)
         assert r.status_code == 201, f"Repayment: {r.status_code} {r.text[:200]}"

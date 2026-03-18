@@ -28,7 +28,7 @@ services:
       DB_HOST: postgres
       DB_NAME: athena_accounts
       SERVICE_NAME: go-account-service
-      RABBITMQ_CONSUME_ENABLED: "false"
+      RABBITMQ_CONSUME_ENABLED: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -55,7 +55,7 @@ services:
       DB_HOST: postgres
       DB_NAME: athena_products
       SERVICE_NAME: go-product-service
-      RABBITMQ_CONSUME_ENABLED: "false"
+      RABBITMQ_CONSUME_ENABLED: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -82,7 +82,7 @@ services:
       DB_HOST: postgres
       DB_NAME: athena_media
       SERVICE_NAME: go-media-service
-      RABBITMQ_CONSUME_ENABLED: "false"
+      RABBITMQ_CONSUME_ENABLED: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -110,7 +110,7 @@ services:
       DB_NAME: athena_loans
       SERVICE_NAME: go-loan-origination-service
       MIGRATE_ON_STARTUP: "false"
-      RABBITMQ_CONSUME_ENABLED: "false"
+      RABBITMQ_CONSUME_ENABLED: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -137,7 +137,7 @@ services:
       DB_HOST: postgres
       DB_NAME: athena_loans
       SERVICE_NAME: go-loan-management-service
-      RABBITMQ_CONSUME_ENABLED: "false"
+      RABBITMQ_CONSUME_ENABLED: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -164,7 +164,7 @@ services:
       DB_HOST: postgres
       DB_NAME: athena_payments
       SERVICE_NAME: go-payment-service
-      RABBITMQ_CONSUME_ENABLED: "false"
+      RABBITMQ_CONSUME_ENABLED: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -191,7 +191,7 @@ services:
       DB_HOST: postgres
       DB_NAME: athena_accounting
       SERVICE_NAME: go-accounting-service
-      RABBITMQ_CONSUME_ENABLED: "false"
+      RABBITMQ_CONSUME_ENABLED: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -218,7 +218,7 @@ services:
       DB_HOST: postgres
       DB_NAME: athena_float
       SERVICE_NAME: go-float-service
-      RABBITMQ_CONSUME_ENABLED: "false"
+      RABBITMQ_CONSUME_ENABLED: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -245,7 +245,7 @@ services:
       DB_HOST: postgres
       DB_NAME: athena_collections
       SERVICE_NAME: go-collections-service
-      RABBITMQ_CONSUME_ENABLED: "false"
+      RABBITMQ_CONSUME_ENABLED: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -272,7 +272,7 @@ services:
       DB_HOST: postgres
       DB_NAME: athena_compliance
       SERVICE_NAME: go-compliance-service
-      RABBITMQ_CONSUME_ENABLED: "false"
+      RABBITMQ_CONSUME_ENABLED: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -299,7 +299,7 @@ services:
       DB_HOST: postgres
       DB_NAME: athena_reporting
       SERVICE_NAME: go-reporting-service
-      RABBITMQ_CONSUME_ENABLED: "false"
+      RABBITMQ_CONSUME_ENABLED: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -326,7 +326,7 @@ services:
       DB_HOST: postgres
       DB_NAME: athena_scoring
       SERVICE_NAME: go-ai-scoring-service
-      RABBITMQ_CONSUME_ENABLED: "false"
+      RABBITMQ_CONSUME_ENABLED: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -353,7 +353,7 @@ services:
       DB_HOST: postgres
       DB_NAME: athena_overdraft
       SERVICE_NAME: go-overdraft-service
-      RABBITMQ_CONSUME_ENABLED: "false"
+      RABBITMQ_CONSUME_ENABLED: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -380,7 +380,7 @@ services:
       DB_HOST: postgres
       DB_NAME: athena_notifications
       SERVICE_NAME: go-notification-service
-      RABBITMQ_CONSUME_ENABLED: "false"
+      RABBITMQ_CONSUME_ENABLED: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -407,7 +407,7 @@ services:
       DB_HOST: postgres
       DB_NAME: athena_fraud
       SERVICE_NAME: go-fraud-detection-service
-      RABBITMQ_CONSUME_ENABLED: "false"
+      RABBITMQ_CONSUME_ENABLED: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -432,6 +432,20 @@ services:
       <<: *go-env
       PORT: 8105
       SERVICE_NAME: go-lms-api-gateway
+      ROUTE_ACCOUNT_SERVICE_URL: "http://go-account-service:8086"
+      ROUTE_PRODUCT_SERVICE_URL: "http://go-product-service:8087"
+      ROUTE_LOAN_ORIGINATION_SERVICE_URL: "http://go-loan-origination-service:8088"
+      ROUTE_LOAN_MANAGEMENT_SERVICE_URL: "http://go-loan-management-service:8089"
+      ROUTE_PAYMENT_SERVICE_URL: "http://go-payment-service:8090"
+      ROUTE_ACCOUNTING_SERVICE_URL: "http://go-accounting-service:8091"
+      ROUTE_FLOAT_SERVICE_URL: "http://go-float-service:8092"
+      ROUTE_COLLECTIONS_SERVICE_URL: "http://go-collections-service:8093"
+      ROUTE_COMPLIANCE_SERVICE_URL: "http://go-compliance-service:8094"
+      ROUTE_REPORTING_SERVICE_URL: "http://go-reporting-service:8095"
+      ROUTE_AI_SCORING_SERVICE_URL: "http://go-ai-scoring-service:8096"
+      ROUTE_OVERDRAFT_SERVICE_URL: "http://go-overdraft-service:8097"
+      ROUTE_MEDIA_SERVICE_URL: "http://go-media-service:8098"
+      ROUTE_FRAUD_DETECTION_SERVICE_URL: "http://go-fraud-detection-service:8100"
     depends_on:
       rabbitmq:
         condition: service_healthy

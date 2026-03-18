@@ -383,7 +383,7 @@ func toTxResponse(tx *model.WalletTransaction) *model.WalletTransactionResponse 
 // ApplyOverdraft applies for an overdraft facility on a wallet.
 func (s *WalletService) ApplyOverdraft(ctx context.Context, walletID uuid.UUID, tenantID string) (map[string]any, error) {
 	wallet, err := s.repo.FindWalletByTenantAndID(ctx, tenantID, walletID)
-	if err != nil {
+	if err != nil || wallet == nil {
 		return nil, errors.NotFoundResource("Wallet", walletID)
 	}
 	return map[string]any{
@@ -396,7 +396,7 @@ func (s *WalletService) ApplyOverdraft(ctx context.Context, walletID uuid.UUID, 
 // GetOverdraftFacility returns the overdraft facility for a wallet.
 func (s *WalletService) GetOverdraftFacility(ctx context.Context, walletID uuid.UUID, tenantID string) (map[string]any, error) {
 	facility, err := s.repo.FindLatestFacilityByWallet(ctx, walletID)
-	if err != nil {
+	if err != nil || facility == nil {
 		return map[string]any{
 			"walletId":  walletID,
 			"hasOD":     false,

@@ -31,6 +31,8 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Route("/api/v1/notifications", func(r chi.Router) {
 		r.Get("/logs", h.getLogs)
 		r.Get("/config/{type}", h.getConfig)
+		r.Get("/email-config", h.getEmailConfig)
+		r.Get("/sms-config", h.getSMSConfig)
 		r.Post("/config", h.updateConfig)
 		r.Post("/send", h.send)
 	})
@@ -60,6 +62,21 @@ func (h *Handler) getLogs(w http.ResponseWriter, r *http.Request) {
 // getConfig returns the notification config for EMAIL or SMS.
 func (h *Handler) getConfig(w http.ResponseWriter, r *http.Request) {
 	configType := strings.ToUpper(chi.URLParam(r, "type"))
+	h.respondWithConfig(w, r, configType)
+}
+
+// getEmailConfig returns the EMAIL notification config.
+func (h *Handler) getEmailConfig(w http.ResponseWriter, r *http.Request) {
+	h.respondWithConfig(w, r, "EMAIL")
+}
+
+// getSMSConfig returns the SMS notification config.
+func (h *Handler) getSMSConfig(w http.ResponseWriter, r *http.Request) {
+	h.respondWithConfig(w, r, "SMS")
+}
+
+// respondWithConfig fetches and returns the config for the given type.
+func (h *Handler) respondWithConfig(w http.ResponseWriter, r *http.Request, configType string) {
 	config, err := h.svc.GetConfig(r.Context(), configType)
 	if err != nil {
 		h.logger.Error("Failed to get config", zap.Error(err))

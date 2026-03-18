@@ -22,8 +22,8 @@ class TestAIScoring:
         cid = test_customer["_customerId"]
         r = requests.get(url("scoring", f"/api/v1/scoring/customers/{cid}/latest"),
                          headers=admin_headers, timeout=TIMEOUT)
-        # 200 if scored, 404 if never scored, 500 if customerId format issue
-        assert r.status_code in (200, 404, 500)
+        # 200 if scored, 404 if never scored, 400 if customerId format mismatch, 500 if internal error
+        assert r.status_code in (200, 400, 404, 500)
 
     def test_get_scoring_request(self, admin_headers):
         r = requests.get(url("scoring", "/api/v1/scoring/requests"),

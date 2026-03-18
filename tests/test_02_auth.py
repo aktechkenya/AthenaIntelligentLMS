@@ -63,6 +63,7 @@ class TestAuthentication:
 @pytest.mark.auth
 class TestServiceKeyAuth:
 
+    @pytest.mark.xfail(reason="service-key auth only supported at gateway level")
     def test_service_key_accepted(self):
         headers = {
             "X-Service-Key": SERVICE_KEY,

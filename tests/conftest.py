@@ -13,28 +13,28 @@ import requests
 BASE = os.getenv("LMS_BASE", "http://localhost")
 
 SERVICES = {
-    "account":          f"{BASE}:18086",
-    "product":          f"{BASE}:18087",
-    "loan_origination": f"{BASE}:18088",
-    "loan_management":  f"{BASE}:18089",
-    "payment":          f"{BASE}:18090",
-    "accounting":       f"{BASE}:18091",
-    "float":            f"{BASE}:18092",
-    "collections":      f"{BASE}:18093",
-    "compliance":       f"{BASE}:18094",
-    "reporting":        f"{BASE}:18095",
-    "scoring":          f"{BASE}:18096",
-    "overdraft":        f"{BASE}:18097",
-    "media":            f"{BASE}:18098",
-    "notification":     f"{BASE}:18099",
-    "gateway":          f"{BASE}:18105",
-    "fraud":            f"{BASE}:18100",
+    "account":          f"{BASE}:28086",
+    "product":          f"{BASE}:28087",
+    "loan_origination": f"{BASE}:28088",
+    "loan_management":  f"{BASE}:28089",
+    "payment":          f"{BASE}:28090",
+    "accounting":       f"{BASE}:28091",
+    "float":            f"{BASE}:28092",
+    "collections":      f"{BASE}:28093",
+    "compliance":       f"{BASE}:28094",
+    "reporting":        f"{BASE}:28095",
+    "scoring":          f"{BASE}:28096",
+    "overdraft":        f"{BASE}:28097",
+    "media":            f"{BASE}:28098",
+    "notification":     f"{BASE}:28099",
+    "gateway":          f"{BASE}:28105",
+    "fraud":            f"{BASE}:28100",
     "fraud_ml":         f"{BASE}:18101",
 }
 
 SERVICE_KEY = os.getenv(
     "LMS_SERVICE_KEY",
-    "1473bdcbf4d90d90833bb90cf042faa16d3f5729c258624de9118eb4519ffe17",
+    "athena-internal-key",
 )
 
 DEMO_USERS = {

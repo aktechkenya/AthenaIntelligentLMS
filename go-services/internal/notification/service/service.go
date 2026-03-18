@@ -68,13 +68,13 @@ func (s *Service) SendEmail(ctx context.Context, serviceName, to, subject, body 
 	}
 
 	// Build the email message
-	msg := buildEmailMessage(config.FromAddress, to, subject, body)
+	msg := buildEmailMessage(ptrStr(config.FromAddress), to, subject, body)
 
-	addr := fmt.Sprintf("%s:%d", config.Host, config.Port)
-	hasCredentials := strings.TrimSpace(config.Username) != "" && strings.TrimSpace(config.Password) != ""
+	addr := fmt.Sprintf("%s:%d", ptrStr(config.Host), ptrInt(config.Port))
+	hasCredentials := strings.TrimSpace(ptrStr(config.Username)) != "" && strings.TrimSpace(ptrStr(config.Password)) != ""
 
 	var sendErr error
-	if config.Port == 465 {
+	if ptrInt(config.Port) == 465 {
 		// Implicit TLS (SMTPS)
 		sendErr = sendSMTPS(addr, config, hasCredentials, to, msg)
 	} else {
@@ -94,16 +94,17 @@ func (s *Service) SendEmail(ctx context.Context, serviceName, to, subject, body 
 
 // sendSMTPS handles port 465 implicit TLS connections.
 func sendSMTPS(addr string, config *model.NotificationConfig, hasCredentials bool, to string, msg []byte) error {
+	host := ptrStr(config.Host)
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true, //nolint:gosec // matches Java ssl.trust=*
-		ServerName:         config.Host,
+		ServerName:         host,
 	}
 	conn, err := tls.Dial("tcp", addr, tlsConfig)
 	if err != nil {
 		return fmt.Errorf("tls dial: %w", err)
 	}
 
-	c, err := smtp.NewClient(conn, config.Host)
+	c, err := smtp.NewClient(conn, host)
 	if err != nil {
 		conn.Close()
 		return fmt.Errorf("smtp client: %w", err)
@@ -111,17 +112,18 @@ func sendSMTPS(addr string, config *model.NotificationConfig, hasCredentials boo
 	defer c.Close()
 
 	if hasCredentials {
-		auth := smtp.PlainAuth("", config.Username, config.Password, config.Host)
+		auth := smtp.PlainAuth("", ptrStr(config.Username), ptrStr(config.Password), host)
 		if err := c.Auth(auth); err != nil {
 			return fmt.Errorf("smtp auth: %w", err)
 		}
 	}
 
-	return sendMessage(c, config.FromAddress, to, msg)
+	return sendMessage(c, ptrStr(config.FromAddress), to, msg)
 }
 
 // sendSMTPWithStartTLS handles port 587 STARTTLS or plain SMTP connections.
 func sendSMTPWithStartTLS(addr string, config *model.NotificationConfig, hasCredentials bool, to string, msg []byte) error {
+	host := ptrStr(config.Host)
 	c, err := smtp.Dial(addr)
 	if err != nil {
 		return fmt.Errorf("smtp dial: %w", err)
@@ -133,19 +135,35 @@ func sendSMTPWithStartTLS(addr string, config *model.NotificationConfig, hasCred
 		if ok, _ := c.Extension("STARTTLS"); ok {
 			tlsConfig := &tls.Config{
 				InsecureSkipVerify: true, //nolint:gosec // matches Java ssl.trust=*
-				ServerName:         config.Host,
+				ServerName:         host,
 			}
 			if err := c.StartTLS(tlsConfig); err != nil {
 				return fmt.Errorf("starttls: %w", err)
 			}
 		}
-		auth := smtp.PlainAuth("", config.Username, config.Password, config.Host)
+		auth := smtp.PlainAuth("", ptrStr(config.Username), ptrStr(config.Password), host)
 		if err := c.Auth(auth); err != nil {
 			return fmt.Errorf("smtp auth: %w", err)
 		}
 	}
 
-	return sendMessage(c, config.FromAddress, to, msg)
+	return sendMessage(c, ptrStr(config.FromAddress), to, msg)
+}
+
+// ptrStr safely dereferences a *string, returning "" if nil.
+func ptrStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// ptrInt safely dereferences a *int, returning 0 if nil.
+func ptrInt(i *int) int {
+	if i == nil {
+		return 0
+	}
+	return *i
 }
 
 func sendMessage(c *smtp.Client, from, to string, msg []byte) error {

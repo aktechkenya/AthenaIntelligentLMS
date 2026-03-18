@@ -15,15 +15,15 @@ import (
 
 // LoanDisbursedPayload is the event payload for loan.disbursed events.
 type LoanDisbursedPayload struct {
-	ApplicationID      string `json:"applicationId"`
-	CustomerID         string `json:"customerId"`
-	ProductID          string `json:"productId"`
-	TenantID           string `json:"tenantId"`
-	Amount             string `json:"amount"`
-	InterestRate       string `json:"interestRate"`
-	TenorMonths        int    `json:"tenorMonths"`
-	ScheduleType       string `json:"scheduleType"`
-	RepaymentFrequency string `json:"repaymentFrequency"`
+	ApplicationID      string          `json:"applicationId"`
+	CustomerID         string          `json:"customerId"`
+	ProductID          string          `json:"productId"`
+	TenantID           string          `json:"tenantId"`
+	Amount             decimal.Decimal `json:"amount"`
+	InterestRate       decimal.Decimal `json:"interestRate"`
+	TenorMonths        int             `json:"tenorMonths"`
+	ScheduleType       string          `json:"scheduleType"`
+	RepaymentFrequency string          `json:"repaymentFrequency"`
 }
 
 // LoanDisbursedConsumer consumes loan.disbursed events and activates loans.
@@ -80,21 +80,13 @@ func (c *LoanDisbursedConsumer) handle(ctx context.Context, evt *commonEvent.Dom
 		return nil
 	}
 
-	amount, err := decimal.NewFromString(payload.Amount)
-	if err != nil {
-		c.logger.Error("Invalid amount", zap.String("value", payload.Amount), zap.Error(err))
+	amount := payload.Amount
+	if amount.IsZero() {
+		c.logger.Error("Amount is zero or missing")
 		return nil
 	}
 
-	interestRate := decimal.Zero
-	if payload.InterestRate != "" {
-		rate, err := decimal.NewFromString(payload.InterestRate)
-		if err != nil {
-			c.logger.Warn("Invalid interestRate, defaulting to 0", zap.String("value", payload.InterestRate))
-		} else {
-			interestRate = rate
-		}
-	}
+	interestRate := payload.InterestRate
 
 	tenorMonths := payload.TenorMonths
 	if tenorMonths <= 0 {
