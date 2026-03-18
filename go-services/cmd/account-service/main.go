@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
+	"github.com/shopspring/decimal"
 
 	"github.com/athena-lms/go-services/internal/account/event"
 	"github.com/athena-lms/go-services/internal/account/handler"
@@ -23,6 +24,8 @@ import (
 	commonmw "github.com/athena-lms/go-services/internal/common/middleware"
 	"github.com/athena-lms/go-services/internal/common/rabbitmq"
 )
+
+func init() { decimal.MarshalJSONWithoutQuotes = true }
 
 func main() {
 	// Structured JSON logging

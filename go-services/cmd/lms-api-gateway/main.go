@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
+	"github.com/shopspring/decimal"
 
 	"github.com/athena-lms/go-services/internal/common/auth"
 	"github.com/athena-lms/go-services/internal/common/config"
@@ -473,6 +474,8 @@ func healthHandler(gw *Gateway) http.HandlerFunc {
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
+
+func init() { decimal.MarshalJSONWithoutQuotes = true }
 
 func main() {
 	logger, _ := zap.NewProduction()
