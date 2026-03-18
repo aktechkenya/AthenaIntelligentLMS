@@ -1,0 +1,144 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  e2e-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: athena
+          POSTGRES_PASSWORD: athena_secret
+          POSTGRES_DB: athena
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U athena"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+      rabbitmq:
+        image: rabbitmq:3.13-management-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: athena
+          RABBITMQ_DEFAULT_PASS: athena_secret
+        ports:
+          - 5672:5672
+          - 15672:15672
+        options: >-
+          --health-cmd="rabbitmqctl status"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Initialize LMS databases
+        run: |
+          PGPASSWORD=athena_secret psql -h localhost -U athena -d athena \
+            -f scripts/init-lms-databases.sql
+
+      - name: Build all services
+        run: |
+          for svc in account-service product-service loan-origination-service \
+            loan-management-service payment-service accounting-service \
+            float-service collections-service compliance-service \
+            reporting-service ai-scoring-service overdraft-service \
+            media-service notification-service lms-api-gateway; do
+            if [ -d "$svc" ] && [ -f "$svc/pom.xml" ]; then
+              echo "Building $svc..."
+              mvn -B -q -f "$svc/pom.xml" package -DskipTests || true
+            fi
+          done
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install test dependencies
+        run: pip install -r tests/requirements.txt
+
+      - name: Start services
+        run: |
+          docker compose \
+            -f ../AthenaCreditScore/docker-compose.yml \
+            -f docker-compose.lms.yml \
+            up -d --build
+        continue-on-error: true
+
+      - name: Wait for services
+        run: |
+          echo "Waiting for services to start..."
+          PORTS=(18086 18087 18088 18089 18090 18091 18092 18093 18094 18095 18096 18097 18098 18099 18105)
+          for i in $(seq 1 60); do
+            UP=0
+            for port in "${PORTS[@]}"; do
+              if curl -sf "http://localhost:$port/actuator/health" > /dev/null 2>&1; then
+                ((UP++))
+              fi
+            done
+            echo "  [$i/60] $UP/${#PORTS[@]} services healthy"
+            if [ "$UP" -eq "${#PORTS[@]}" ]; then
+              echo "All services healthy!"
+              break
+            fi
+            sleep 5
+          done
+
+      - name: Run E2E smoke tests
+        run: |
+          cd tests
+          python -m pytest -v --tb=short -m smoke \
+            --html=reports/smoke_report.html --self-contained-html \
+            --junitxml=reports/smoke_junit.xml
+
+      - name: Run full E2E test suite
+        run: |
+          cd tests
+          python -m pytest -v --tb=short \
+            --html=reports/full_report.html --self-contained-html \
+            --junitxml=reports/full_junit.xml
+        continue-on-error: true
+
+      - name: Upload test reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-test-reports
+          path: tests/reports/
+          retention-days: 30
+
+      - name: Publish test results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: E2E Test Results
+          path: tests/reports/*_junit.xml
+          reporter: java-junit
+
+      - name: Collect service logs on failure
+        if: failure()
+        run: |
+          docker compose \
+            -f ../AthenaCreditScore/docker-compose.yml \
+            -f docker-compose.lms.yml \
+            logs --tail=100 > tests/reports/docker_logs.txt 2>&1

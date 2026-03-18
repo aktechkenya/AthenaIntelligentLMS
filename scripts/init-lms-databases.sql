@@ -118,6 +118,15 @@ CREATE DATABASE athena_media
 GRANT ALL PRIVILEGES ON DATABASE athena_media TO athena;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- ─── Fraud Detection Service ─────────────────────────────────────────────────
+SELECT 'Creating athena_fraud...' AS step;
+CREATE DATABASE athena_fraud
+    WITH OWNER = athena ENCODING = 'UTF8' TEMPLATE = template0;
+
+\c athena_fraud
+GRANT ALL PRIVILEGES ON DATABASE athena_fraud TO athena;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
 -- ─── Notification Service ─────────────────────────────────────────────────────
 SELECT 'Creating athena_notifications...' AS step;
 CREATE DATABASE athena_notifications

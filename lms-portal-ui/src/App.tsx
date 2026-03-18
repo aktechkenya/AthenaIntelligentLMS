@@ -31,7 +31,11 @@ import BalanceSheetPage from "./pages/BalanceSheetPage";
 import TrialBalancePage from "./pages/TrialBalancePage";
 import AMLPage from "./pages/AMLPage";
 import FraudAlertsPage from "./pages/FraudAlertsPage";
+import FraudDashboardPage from "./pages/FraudDashboardPage";
+import FraudCasesPage from "./pages/FraudCasesPage";
+import FraudRulesPage from "./pages/FraudRulesPage";
 import SARReportsPage from "./pages/SARReportsPage";
+import WatchlistPage from "./pages/WatchlistPage";
 import AuditLogsPage from "./pages/AuditLogsPage";
 import FloatPage from "./pages/FloatPage";
 import WalletsPage from "./pages/WalletsPage";
@@ -115,7 +119,11 @@ const AppRoutes = () => (
       <Route path="/trial-balance" element={<P><TrialBalancePage /></P>} />
       <Route path="/aml" element={<P><AMLPage /></P>} />
       <Route path="/fraud" element={<P><FraudAlertsPage /></P>} />
+      <Route path="/fraud-dashboard" element={<P><FraudDashboardPage /></P>} />
+      <Route path="/fraud-cases" element={<P><FraudCasesPage /></P>} />
+      <Route path="/fraud-rules" element={<P><FraudRulesPage /></P>} />
       <Route path="/sar-reports" element={<P><SARReportsPage /></P>} />
+      <Route path="/watchlist" element={<P><WatchlistPage /></P>} />
       <Route path="/audit" element={<P><AuditLogsPage /></P>} />
       <Route path="/float" element={<P><FloatPage /></P>} />
       <Route path="/wallets" element={<P><WalletsPage /></P>} />

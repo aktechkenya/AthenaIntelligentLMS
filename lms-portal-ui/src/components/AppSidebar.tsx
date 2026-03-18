@@ -43,6 +43,8 @@ import {
   ClipboardList,
   LogOut,
   FolderOpen,
+  Briefcase,
+  Settings2,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -105,9 +107,13 @@ const financeNav = [
 ];
 
 const complianceNav = [
-  { title: "AML Monitoring", url: "/aml", icon: Shield },
+  { title: "Fraud Dashboard", url: "/fraud-dashboard", icon: Shield },
+  { title: "AML Monitoring", url: "/aml", icon: AlertTriangle },
   { title: "Fraud Alerts", url: "/fraud", icon: AlertCircle },
+  { title: "Investigation Cases", url: "/fraud-cases", icon: Briefcase },
+  { title: "Detection Rules", url: "/fraud-rules", icon: Settings2 },
   { title: "SAR / CTR Reports", url: "/sar-reports", icon: FileWarning },
+  { title: "Watchlist", url: "/watchlist", icon: ShieldCheck },
   { title: "Audit Logs", url: "/audit", icon: Lock },
 ];
 

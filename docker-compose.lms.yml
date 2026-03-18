@@ -8,8 +8,6 @@ version: "3.9"
 
 networks:
   athena-net:
-    external: true
-    name: athenacreditscore_athena-net
 
 volumes:
   accounts_data:
@@ -22,6 +20,7 @@ volumes:
   compliance_data:
   reporting_data:
   scoring_data:
+  fraud_data:
   loki_data:
   media_storage:
 
@@ -72,7 +71,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-athena}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
     ports:
-      - "8086:8086"
+      - "18086:8086"
     depends_on:
       lms-db-init:
         condition: service_completed_successfully
@@ -100,7 +99,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-athena}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
     ports:
-      - "8087:8087"
+      - "18087:8087"
     depends_on:
       lms-db-init:
         condition: service_completed_successfully
@@ -128,7 +127,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-athena}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
     ports:
-      - "8088:8088"
+      - "18088:8088"
     depends_on:
       lms-db-init:
         condition: service_completed_successfully
@@ -156,7 +155,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-athena}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
     ports:
-      - "8089:8089"
+      - "18089:8089"
     depends_on:
       lms-db-init:
         condition: service_completed_successfully
@@ -186,7 +185,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-athena}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
     ports:
-      - "8090:8090"
+      - "18090:8090"
     depends_on:
       lms-db-init:
         condition: service_completed_successfully
@@ -214,7 +213,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-athena}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
     ports:
-      - "8091:8091"
+      - "18091:8091"
     depends_on:
       lms-db-init:
         condition: service_completed_successfully
@@ -244,7 +243,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-athena}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
     ports:
-      - "8092:8092"
+      - "18092:8092"
     depends_on:
       lms-db-init:
         condition: service_completed_successfully
@@ -274,7 +273,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-athena}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
     ports:
-      - "8093:8093"
+      - "18093:8093"
     depends_on:
       lms-db-init:
         condition: service_completed_successfully
@@ -304,7 +303,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-athena}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
     ports:
-      - "8094:8094"
+      - "18094:8094"
     depends_on:
       lms-db-init:
         condition: service_completed_successfully
@@ -332,7 +331,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-athena}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
     ports:
-      - "8095:8095"
+      - "18095:8095"
     depends_on:
       lms-db-init:
         condition: service_completed_successfully
@@ -362,7 +361,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
       ATHENA_SCORING_URL: ${ATHENA_SCORING_URL:-http://athena-python-service:8001}
     ports:
-      - "8096:8096"
+      - "18096:8096"
     depends_on:
       lms-db-init:
         condition: service_completed_successfully
@@ -393,7 +392,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
       ATHENA_SCORING_URL: http://ai-scoring-service:8096
     ports:
-      - "8097:8097"
+      - "18097:8097"
     depends_on:
       lms-db-init:
         condition: service_completed_successfully
@@ -426,7 +425,7 @@ services:
     volumes:
       - media_storage:/app/storage
     ports:
-      - "8098:8098"
+      - "18098:8098"
     depends_on:
       lms-db-init:
         condition: service_completed_successfully
@@ -452,7 +451,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-athena}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
     ports:
-      - "8099:8099"
+      - "18099:8099"
     depends_on:
       lms-db-init:
         condition: service_completed_successfully
@@ -467,6 +466,60 @@ services:
       retries: 5
       start_period: 120s
 
+  # ─── Fraud Detection Service (port 8100) ─────────────────────────────────────
+  fraud-detection-service:
+    <<: *lms-common
+    build:
+      context: /home/adira/AthenaIntelligentLMS
+      dockerfile: fraud-detection-service/Dockerfile
+    container_name: lms-fraud-detection-service
+    environment:
+      <<: *lms-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/athena_fraud
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-athena}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
+      FRAUD_ML_SERVICE_URL: http://fraud-ml-service:8101
+    ports:
+      - "18100:8100"
+    depends_on:
+      lms-db-init:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8100/actuator/health | grep -q UP || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # ─── Fraud ML Service (Python sidecar, port 8101) ────────────────────────────
+  fraud-ml-service:
+    <<: *lms-common
+    build:
+      context: /home/adira/AthenaIntelligentLMS/fraud-ml-service
+      dockerfile: Dockerfile
+    container_name: lms-fraud-ml-service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-athena}:${POSTGRES_PASSWORD:-athena_secret}@postgres:5432/athena_fraud
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MODEL_DIR: /app/model_artifacts
+    ports:
+      - "18101:8101"
+    volumes:
+      - fraud_data:/app/model_artifacts
+    depends_on:
+      lms-db-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8101/health | grep -q ok || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
   # ─── LMS API Gateway (port 8105) ─────────────────────────────────────────────
   # Single entry point for all external-to-LMS traffic (wallet services, etc.)
   lms-api-gateway:
@@ -478,7 +531,7 @@ services:
     environment:
       <<: *lms-env
     ports:
-      - "8105:8105"
+      - "18105:8105"
     depends_on:
       discovery-server:
         condition: service_healthy
