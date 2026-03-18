@@ -77,6 +77,21 @@ export default defineConfig(({ mode }) => ({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/proxy\/fraud-ml/, ""),
       },
+      "/proxy/overdraft": {
+        target: "http://localhost:28097",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/proxy\/overdraft/, ""),
+      },
+      "/proxy/media": {
+        target: "http://localhost:28098",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/proxy\/media/, ""),
+      },
+      "/proxy/notifications": {
+        target: "http://localhost:28099",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/proxy\/notifications/, ""),
+      },
     },
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),

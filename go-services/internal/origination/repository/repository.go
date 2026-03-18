@@ -31,12 +31,13 @@ const applicationColumns = `id, tenant_id, customer_id, product_id, requested_am
 func scanApplication(row pgx.Row) (*model.LoanApplication, error) {
 	var app model.LoanApplication
 	var riskGrade *string
+	var depositAmount *decimal.Decimal
 	err := row.Scan(
 		&app.ID, &app.TenantID, &app.CustomerID, &app.ProductID,
 		&app.RequestedAmount, &app.ApprovedAmount,
 		&app.Currency, &app.TenorMonths, &app.Purpose, &app.Status,
 		&riskGrade, &app.CreditScore, &app.InterestRate,
-		&app.DepositAmount, &app.DisbursedAmount, &app.DisbursedAt,
+		&depositAmount, &app.DisbursedAmount, &app.DisbursedAt,
 		&app.DisbursementAccount,
 		&app.ReviewerID, &app.ReviewedAt, &app.ReviewNotes,
 		&app.CreatedAt, &app.UpdatedAt, &app.CreatedBy, &app.UpdatedBy,
@@ -47,6 +48,11 @@ func scanApplication(row pgx.Row) (*model.LoanApplication, error) {
 	if riskGrade != nil {
 		rg := model.RiskGrade(*riskGrade)
 		app.RiskGrade = &rg
+	}
+	if depositAmount != nil {
+		app.DepositAmount = *depositAmount
+	} else {
+		app.DepositAmount = decimal.Zero
 	}
 	return &app, nil
 }

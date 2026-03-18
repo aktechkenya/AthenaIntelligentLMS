@@ -1,6 +1,6 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
-CREATE TABLE customer_wallets (
+CREATE TABLE IF NOT EXISTS customer_wallets (
     id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id        VARCHAR(100) NOT NULL,
     customer_id      VARCHAR(100) NOT NULL,
@@ -15,7 +15,7 @@ CREATE TABLE customer_wallets (
     CONSTRAINT uq_wallet_account_number UNIQUE (account_number)
 );
 
-CREATE TABLE overdraft_facilities (
+CREATE TABLE IF NOT EXISTS overdraft_facilities (
     id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id        VARCHAR(100) NOT NULL,
     wallet_id        UUID NOT NULL REFERENCES customer_wallets(id),
@@ -40,7 +40,17 @@ CREATE TABLE overdraft_facilities (
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE wallet_transactions (
+-- Add columns that may be missing if the table was created by an earlier migration
+ALTER TABLE overdraft_facilities ADD COLUMN IF NOT EXISTS drawn_principal  NUMERIC(19,4) NOT NULL DEFAULT 0;
+ALTER TABLE overdraft_facilities ADD COLUMN IF NOT EXISTS accrued_interest NUMERIC(19,4) NOT NULL DEFAULT 0;
+ALTER TABLE overdraft_facilities ADD COLUMN IF NOT EXISTS dpd              INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE overdraft_facilities ADD COLUMN IF NOT EXISTS npl_stage        VARCHAR(20) NOT NULL DEFAULT 'PERFORMING';
+ALTER TABLE overdraft_facilities ADD COLUMN IF NOT EXISTS last_billing_date DATE;
+ALTER TABLE overdraft_facilities ADD COLUMN IF NOT EXISTS next_billing_date DATE;
+ALTER TABLE overdraft_facilities ADD COLUMN IF NOT EXISTS expiry_date       DATE;
+ALTER TABLE overdraft_facilities ADD COLUMN IF NOT EXISTS last_dpd_refresh  DATE;
+
+CREATE TABLE IF NOT EXISTS wallet_transactions (
     id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id        VARCHAR(100) NOT NULL,
     wallet_id        UUID NOT NULL REFERENCES customer_wallets(id),
@@ -54,7 +64,7 @@ CREATE TABLE wallet_transactions (
     CONSTRAINT uq_wallet_tx_reference UNIQUE (reference)
 );
 
-CREATE TABLE overdraft_interest_charges (
+CREATE TABLE IF NOT EXISTS overdraft_interest_charges (
     id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id        VARCHAR(100) NOT NULL,
     facility_id      UUID NOT NULL REFERENCES overdraft_facilities(id),
@@ -66,7 +76,7 @@ CREATE TABLE overdraft_interest_charges (
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE overdraft_audit_log (
+CREATE TABLE IF NOT EXISTS overdraft_audit_log (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id       VARCHAR(100) NOT NULL,
     entity_type     VARCHAR(30) NOT NULL,
@@ -79,7 +89,7 @@ CREATE TABLE overdraft_audit_log (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE overdraft_billing_statements (
+CREATE TABLE IF NOT EXISTS overdraft_billing_statements (
     id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id           VARCHAR(100) NOT NULL,
     facility_id         UUID NOT NULL REFERENCES overdraft_facilities(id),
@@ -97,7 +107,7 @@ CREATE TABLE overdraft_billing_statements (
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE credit_band_configs (
+CREATE TABLE IF NOT EXISTS credit_band_configs (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id       VARCHAR(100) NOT NULL,
     band            VARCHAR(1) NOT NULL,
@@ -114,7 +124,7 @@ CREATE TABLE credit_band_configs (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE overdraft_fees (
+CREATE TABLE IF NOT EXISTS overdraft_fees (
     id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id   VARCHAR(100) NOT NULL,
     facility_id UUID NOT NULL REFERENCES overdraft_facilities(id),
@@ -128,24 +138,24 @@ CREATE TABLE overdraft_fees (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Indexes
-CREATE INDEX idx_wallets_tenant ON customer_wallets(tenant_id);
-CREATE INDEX idx_wallets_customer ON customer_wallets(customer_id);
-CREATE INDEX idx_overdraft_wallet ON overdraft_facilities(wallet_id);
-CREATE INDEX idx_overdraft_tenant ON overdraft_facilities(tenant_id);
-CREATE INDEX idx_wallet_tx_wallet ON wallet_transactions(wallet_id);
-CREATE INDEX idx_wallet_tx_tenant ON wallet_transactions(tenant_id);
-CREATE INDEX idx_interest_facility ON overdraft_interest_charges(facility_id);
-CREATE INDEX idx_audit_tenant ON overdraft_audit_log(tenant_id);
-CREATE INDEX idx_audit_entity ON overdraft_audit_log(entity_type, entity_id);
-CREATE INDEX idx_audit_action ON overdraft_audit_log(action);
-CREATE INDEX idx_audit_created ON overdraft_audit_log(created_at);
-CREATE INDEX idx_billing_facility ON overdraft_billing_statements(facility_id);
-CREATE INDEX idx_billing_tenant ON overdraft_billing_statements(tenant_id);
-CREATE INDEX idx_billing_status ON overdraft_billing_statements(status);
-CREATE INDEX idx_billing_due_date ON overdraft_billing_statements(due_date);
-CREATE INDEX idx_band_config_tenant ON credit_band_configs(tenant_id);
-CREATE INDEX idx_band_config_status ON credit_band_configs(tenant_id, status);
-CREATE INDEX idx_fees_facility ON overdraft_fees(facility_id);
-CREATE INDEX idx_fees_tenant ON overdraft_fees(tenant_id);
-CREATE INDEX idx_fees_type ON overdraft_fees(fee_type);
+-- Indexes (IF NOT EXISTS)
+CREATE INDEX IF NOT EXISTS idx_wallets_tenant ON customer_wallets(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_wallets_customer ON customer_wallets(customer_id);
+CREATE INDEX IF NOT EXISTS idx_overdraft_wallet ON overdraft_facilities(wallet_id);
+CREATE INDEX IF NOT EXISTS idx_overdraft_tenant ON overdraft_facilities(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_wallet_tx_wallet ON wallet_transactions(wallet_id);
+CREATE INDEX IF NOT EXISTS idx_wallet_tx_tenant ON wallet_transactions(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_interest_facility ON overdraft_interest_charges(facility_id);
+CREATE INDEX IF NOT EXISTS idx_audit_tenant ON overdraft_audit_log(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_audit_entity ON overdraft_audit_log(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON overdraft_audit_log(action);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON overdraft_audit_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_billing_facility ON overdraft_billing_statements(facility_id);
+CREATE INDEX IF NOT EXISTS idx_billing_tenant ON overdraft_billing_statements(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_billing_status ON overdraft_billing_statements(status);
+CREATE INDEX IF NOT EXISTS idx_billing_due_date ON overdraft_billing_statements(due_date);
+CREATE INDEX IF NOT EXISTS idx_band_config_tenant ON credit_band_configs(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_band_config_status ON credit_band_configs(tenant_id, status);
+CREATE INDEX IF NOT EXISTS idx_fees_facility ON overdraft_fees(facility_id);
+CREATE INDEX IF NOT EXISTS idx_fees_tenant ON overdraft_fees(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_fees_type ON overdraft_fees(fee_type);
