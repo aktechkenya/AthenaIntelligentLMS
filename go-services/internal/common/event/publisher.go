@@ -18,7 +18,13 @@ type Publisher struct {
 }
 
 // NewPublisher creates a new event publisher.
+// Returns a no-op publisher if the connection is not available.
 func NewPublisher(conn *rabbitmq.Connection, logger *zap.Logger) (*Publisher, error) {
+	if conn == nil || !conn.IsConnected() {
+		logger.Warn("Creating no-op publisher (RabbitMQ not connected)")
+		return &Publisher{ch: nil, logger: logger}, nil
+	}
+
 	ch, err := conn.Channel()
 	if err != nil {
 		return nil, fmt.Errorf("open publisher channel: %w", err)
@@ -34,6 +40,12 @@ func NewPublisher(conn *rabbitmq.Connection, logger *zap.Logger) (*Publisher, er
 
 // Publish publishes a DomainEvent to the LMS exchange with its type as routing key.
 func (p *Publisher) Publish(ctx context.Context, event *DomainEvent) error {
+	if p.ch == nil {
+		p.logger.Warn("Event not published (no RabbitMQ connection)",
+			zap.String("type", event.Type), zap.String("id", event.ID))
+		return nil
+	}
+
 	body, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("marshal event: %w", err)
@@ -65,5 +77,8 @@ func (p *Publisher) Publish(ctx context.Context, event *DomainEvent) error {
 
 // Close closes the publisher channel.
 func (p *Publisher) Close() error {
-	return p.ch.Close()
+	if p.ch != nil {
+		return p.ch.Close()
+	}
+	return nil
 }

@@ -83,8 +83,12 @@ func (c *Config) DatabaseDSN() string {
 
 // RabbitMQURL returns the AMQP connection URL.
 func (c *Config) RabbitMQURL() string {
+	vhost := c.RabbitMQVHost
+	if vhost == "/" {
+		vhost = "%2F"
+	}
 	return fmt.Sprintf(
 		"amqp://%s:%s@%s:%d/%s",
-		c.RabbitMQUser, c.RabbitMQPassword, c.RabbitMQHost, c.RabbitMQPort, c.RabbitMQVHost,
+		c.RabbitMQUser, c.RabbitMQPassword, c.RabbitMQHost, c.RabbitMQPort, vhost,
 	)
 }

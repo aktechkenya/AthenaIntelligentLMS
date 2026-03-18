@@ -55,21 +55,21 @@ func main() {
 	}
 
 	// RabbitMQ
-	rmqConn, err := rabbitmq.NewConnection(cfg.RabbitMQURL(), logger)
-	if err != nil {
-		logger.Fatal("Failed to connect to RabbitMQ", zap.Error(err))
-	}
+	rmqConn := rabbitmq.TryConnection(cfg.RabbitMQURL(), logger)
 	defer rmqConn.Close()
 
-	// Declare topology
-	ch, err := rmqConn.Channel()
-	if err != nil {
-		logger.Fatal("Failed to open channel", zap.Error(err))
+	// Declare topology (only if connected)
+	if rmqConn.IsConnected() {
+		ch, err := rmqConn.Channel()
+		if err != nil {
+			logger.Warn("Failed to open RabbitMQ channel", zap.Error(err))
+		} else {
+			if err := rabbitmq.DeclareTopology(ch, logger); err != nil {
+				logger.Warn("Failed to declare RabbitMQ topology", zap.Error(err))
+			}
+			ch.Close()
+		}
 	}
-	if err := rabbitmq.DeclareTopology(ch, logger); err != nil {
-		logger.Fatal("Failed to declare topology", zap.Error(err))
-	}
-	ch.Close()
 
 	// JWT
 	jwtUtil, err := auth.NewJWTUtil(cfg.JWTSecret)
