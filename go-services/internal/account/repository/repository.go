@@ -547,7 +547,9 @@ func (r *Repository) SearchCustomers(ctx context.Context, tenantID, q string) ([
 
 func scanTenantSettings(row pgx.Row) (*model.TenantSettings, error) {
 	s := &model.TenantSettings{}
-	err := row.Scan(&s.TenantID, &s.Currency, &s.OrgName, &s.CountryCode, &s.Timezone, &s.CreatedAt, &s.UpdatedAt)
+	err := row.Scan(&s.TenantID, &s.Currency, &s.OrgName, &s.CountryCode, &s.Timezone,
+		&s.TwoFactorEnabled, &s.SessionTimeoutMinutes, &s.AuditTrailEnabled, &s.IPWhitelistEnabled,
+		&s.CreatedAt, &s.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -557,7 +559,9 @@ func scanTenantSettings(row pgx.Row) (*model.TenantSettings, error) {
 // GetTenantSettings fetches settings by tenant ID.
 func (r *Repository) GetTenantSettings(ctx context.Context, tenantID string) (*model.TenantSettings, error) {
 	row := r.pool.QueryRow(ctx,
-		`SELECT tenant_id, currency, org_name, country_code, timezone, created_at, updated_at
+		`SELECT tenant_id, currency, org_name, country_code, timezone,
+			two_factor_enabled, session_timeout_minutes, audit_trail_enabled, ip_whitelist_enabled,
+			created_at, updated_at
 		FROM tenant_settings WHERE tenant_id = $1`, tenantID)
 	return scanTenantSettings(row)
 }
@@ -565,16 +569,27 @@ func (r *Repository) GetTenantSettings(ctx context.Context, tenantID string) (*m
 // UpsertTenantSettings creates or updates tenant settings.
 func (r *Repository) UpsertTenantSettings(ctx context.Context, s *model.TenantSettings) error {
 	s.UpdatedAt = time.Now()
+	if s.SessionTimeoutMinutes <= 0 {
+		s.SessionTimeoutMinutes = 30
+	}
 	_, err := r.pool.Exec(ctx,
-		`INSERT INTO tenant_settings (tenant_id, currency, org_name, country_code, timezone, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,NOW(),$6)
+		`INSERT INTO tenant_settings (tenant_id, currency, org_name, country_code, timezone,
+			two_factor_enabled, session_timeout_minutes, audit_trail_enabled, ip_whitelist_enabled,
+			created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),$10)
 		ON CONFLICT (tenant_id) DO UPDATE SET
 			currency = EXCLUDED.currency,
 			org_name = EXCLUDED.org_name,
 			country_code = EXCLUDED.country_code,
 			timezone = EXCLUDED.timezone,
+			two_factor_enabled = EXCLUDED.two_factor_enabled,
+			session_timeout_minutes = EXCLUDED.session_timeout_minutes,
+			audit_trail_enabled = EXCLUDED.audit_trail_enabled,
+			ip_whitelist_enabled = EXCLUDED.ip_whitelist_enabled,
 			updated_at = EXCLUDED.updated_at`,
-		s.TenantID, s.Currency, s.OrgName, s.CountryCode, s.Timezone, s.UpdatedAt,
+		s.TenantID, s.Currency, s.OrgName, s.CountryCode, s.Timezone,
+		s.TwoFactorEnabled, s.SessionTimeoutMinutes, s.AuditTrailEnabled, s.IPWhitelistEnabled,
+		s.UpdatedAt,
 	)
 	return err
 }
@@ -663,4 +678,185 @@ func (r *Repository) ListTransfersByAccount(ctx context.Context, tenantID string
 		transfers = append(transfers, t)
 	}
 	return transfers, total, nil
+}
+
+// ─── Branch ───────────────────────────────────────────────────────────────────
+
+const branchCols = `id, tenant_id, name, code, type, address, city, county, country,
+	phone, email, manager_id, status, parent_id, created_at, updated_at`
+
+func scanBranch(row pgx.Row) (*model.Branch, error) {
+	b := &model.Branch{}
+	err := row.Scan(
+		&b.ID, &b.TenantID, &b.Name, &b.Code, &b.Type,
+		&b.Address, &b.City, &b.County, &b.Country,
+		&b.Phone, &b.Email, &b.ManagerID, &b.Status,
+		&b.ParentID, &b.CreatedAt, &b.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+// ListBranches returns all branches for a tenant.
+func (r *Repository) ListBranches(ctx context.Context, tenantID string) ([]model.Branch, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT `+branchCols+` FROM branches WHERE tenant_id = $1 ORDER BY created_at ASC`,
+		tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var branches []model.Branch
+	for rows.Next() {
+		b := model.Branch{}
+		if err := rows.Scan(
+			&b.ID, &b.TenantID, &b.Name, &b.Code, &b.Type,
+			&b.Address, &b.City, &b.County, &b.Country,
+			&b.Phone, &b.Email, &b.ManagerID, &b.Status,
+			&b.ParentID, &b.CreatedAt, &b.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		branches = append(branches, b)
+	}
+	if branches == nil {
+		branches = []model.Branch{}
+	}
+	return branches, nil
+}
+
+// GetBranch fetches a single branch by ID scoped to tenant.
+func (r *Repository) GetBranch(ctx context.Context, tenantID, id string) (*model.Branch, error) {
+	row := r.pool.QueryRow(ctx,
+		`SELECT `+branchCols+` FROM branches WHERE id = $1 AND tenant_id = $2`,
+		id, tenantID)
+	return scanBranch(row)
+}
+
+// CreateBranch inserts a new branch.
+func (r *Repository) CreateBranch(ctx context.Context, b *model.Branch) error {
+	now := time.Now()
+	b.CreatedAt = now
+	b.UpdatedAt = now
+	return r.pool.QueryRow(ctx,
+		`INSERT INTO branches (tenant_id, name, code, type, address, city, county, country,
+			phone, email, manager_id, status, parent_id, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+		RETURNING id`,
+		b.TenantID, b.Name, b.Code, b.Type, b.Address, b.City, b.County, b.Country,
+		b.Phone, b.Email, b.ManagerID, b.Status, b.ParentID, b.CreatedAt, b.UpdatedAt,
+	).Scan(&b.ID)
+}
+
+// UpdateBranch updates an existing branch.
+func (r *Repository) UpdateBranch(ctx context.Context, b *model.Branch) error {
+	b.UpdatedAt = time.Now()
+	_, err := r.pool.Exec(ctx,
+		`UPDATE branches SET
+			name=$1, code=$2, type=$3, address=$4, city=$5, county=$6, country=$7,
+			phone=$8, email=$9, manager_id=$10, status=$11, parent_id=$12, updated_at=$13
+		WHERE id = $14 AND tenant_id = $15`,
+		b.Name, b.Code, b.Type, b.Address, b.City, b.County, b.Country,
+		b.Phone, b.Email, b.ManagerID, b.Status, b.ParentID, b.UpdatedAt,
+		b.ID, b.TenantID,
+	)
+	return err
+}
+
+// DeleteBranch removes a branch by ID scoped to tenant.
+func (r *Repository) DeleteBranch(ctx context.Context, tenantID, id string) error {
+	_, err := r.pool.Exec(ctx,
+		`DELETE FROM branches WHERE id = $1 AND tenant_id = $2`,
+		id, tenantID)
+	return err
+}
+
+// ─── User ─────────────────────────────────────────────────────────────────────
+
+const userCols = `id, tenant_id, username, name, email, role, status, branch_id, last_login, created_at, updated_at`
+
+func scanUser(row pgx.Row) (*model.User, error) {
+	u := &model.User{}
+	err := row.Scan(&u.ID, &u.TenantID, &u.Username, &u.Name, &u.Email,
+		&u.Role, &u.Status, &u.BranchID, &u.LastLogin, &u.CreatedAt, &u.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+// ListUsers returns paginated users for a tenant.
+func (r *Repository) ListUsers(ctx context.Context, tenantID string, limit, offset int) ([]*model.User, int64, error) {
+	var total int64
+	err := r.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM users WHERE tenant_id = $1`, tenantID).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	rows, err := r.pool.Query(ctx,
+		`SELECT `+userCols+` FROM users WHERE tenant_id = $1
+		ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+		tenantID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var users []*model.User
+	for rows.Next() {
+		u := &model.User{}
+		if err := rows.Scan(&u.ID, &u.TenantID, &u.Username, &u.Name, &u.Email,
+			&u.Role, &u.Status, &u.BranchID, &u.LastLogin, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		users = append(users, u)
+	}
+	if users == nil {
+		users = []*model.User{}
+	}
+	return users, total, nil
+}
+
+// GetUser fetches a user by ID scoped to tenant.
+func (r *Repository) GetUser(ctx context.Context, tenantID, id string) (*model.User, error) {
+	row := r.pool.QueryRow(ctx,
+		`SELECT `+userCols+` FROM users WHERE id = $1 AND tenant_id = $2`,
+		id, tenantID)
+	return scanUser(row)
+}
+
+// CreateUser inserts a new user.
+func (r *Repository) CreateUser(ctx context.Context, u *model.User) error {
+	now := time.Now()
+	u.CreatedAt = now
+	u.UpdatedAt = now
+	return r.pool.QueryRow(ctx,
+		`INSERT INTO users (tenant_id, username, name, email, role, status, branch_id, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		RETURNING id`,
+		u.TenantID, u.Username, u.Name, u.Email, u.Role, u.Status, u.BranchID, u.CreatedAt, u.UpdatedAt,
+	).Scan(&u.ID)
+}
+
+// UpdateUser updates a user's mutable fields.
+func (r *Repository) UpdateUser(ctx context.Context, u *model.User) error {
+	u.UpdatedAt = time.Now()
+	_, err := r.pool.Exec(ctx,
+		`UPDATE users SET name=$1, email=$2, role=$3, status=$4, branch_id=$5, updated_at=$6
+		WHERE id = $7 AND tenant_id = $8`,
+		u.Name, u.Email, u.Role, u.Status, u.BranchID, u.UpdatedAt, u.ID, u.TenantID,
+	)
+	return err
+}
+
+// UpdateUserStatus updates only a user's status.
+func (r *Repository) UpdateUserStatus(ctx context.Context, tenantID, id, status string) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE users SET status = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3`,
+		status, id, tenantID)
+	return err
 }

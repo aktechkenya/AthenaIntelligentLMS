@@ -166,13 +166,75 @@ type Customer struct {
 
 // TenantSettings holds organization-level settings per tenant.
 type TenantSettings struct {
-	TenantID    string    `json:"tenantId"`
-	Currency    string    `json:"currency"`
-	OrgName     *string   `json:"orgName,omitempty"`
-	CountryCode *string   `json:"countryCode,omitempty"`
-	Timezone    string    `json:"timezone"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	TenantID              string    `json:"tenantId"`
+	Currency              string    `json:"currency"`
+	OrgName               *string   `json:"orgName,omitempty"`
+	CountryCode           *string   `json:"countryCode,omitempty"`
+	Timezone              string    `json:"timezone"`
+	TwoFactorEnabled      bool      `json:"twoFactorEnabled"`
+	SessionTimeoutMinutes int       `json:"sessionTimeoutMinutes"`
+	AuditTrailEnabled     bool      `json:"auditTrailEnabled"`
+	IPWhitelistEnabled    bool      `json:"ipWhitelistEnabled"`
+	CreatedAt             time.Time `json:"createdAt"`
+	UpdatedAt             time.Time `json:"updatedAt"`
+}
+
+// ─── User ─────────────────────────────────────────────────────────────────────
+
+// User represents a portal user for admin management.
+type User struct {
+	ID        string     `json:"id"`
+	TenantID  string     `json:"tenantId"`
+	Username  string     `json:"username"`
+	Name      string     `json:"name"`
+	Email     string     `json:"email"`
+	Role      string     `json:"role"`
+	Status    string     `json:"status"` // ACTIVE, INACTIVE, LOCKED
+	BranchID  *string    `json:"branchId"`
+	LastLogin *time.Time `json:"lastLogin"`
+	CreatedAt time.Time  `json:"createdAt"`
+	UpdatedAt time.Time  `json:"updatedAt"`
+}
+
+// ─── Branch ───────────────────────────────────────────────────────────────────
+
+// BranchType enumerates valid branch types.
+type BranchType string
+
+const (
+	BranchTypeHeadOffice BranchType = "HEAD_OFFICE"
+	BranchTypeBranch     BranchType = "BRANCH"
+	BranchTypeAgency     BranchType = "AGENCY"
+	BranchTypeSatellite  BranchType = "SATELLITE"
+)
+
+// ValidBranchType returns true if s is a valid BranchType.
+func ValidBranchType(s string) bool {
+	switch BranchType(s) {
+	case BranchTypeHeadOffice, BranchTypeBranch, BranchTypeAgency, BranchTypeSatellite:
+		return true
+	}
+	return false
+}
+
+// Branch represents a physical branch or office.
+type Branch struct {
+	ID        string    `json:"id"`
+	TenantID  string    `json:"tenantId"`
+	Name      string    `json:"name"`
+	Code      string    `json:"code"`
+	Type      string    `json:"type"`
+	Address   string    `json:"address"`
+	City      string    `json:"city"`
+	County    string    `json:"county"`
+	Country   string    `json:"country"`
+	Phone     string    `json:"phone"`
+	Email     string    `json:"email"`
+	ManagerID string    `json:"managerId"`
+	Status    string    `json:"status"`
+	ParentID  *string   `json:"parentId"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // ─── FundTransfer ─────────────────────────────────────────────────────────────

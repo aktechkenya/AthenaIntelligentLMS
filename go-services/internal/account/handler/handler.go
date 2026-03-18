@@ -71,6 +71,20 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Route("/api/v1/organization", func(r chi.Router) {
 		r.Get("/settings", h.GetOrgSettings)
 		r.Put("/settings", h.UpdateOrgSettings)
+		r.Route("/branches", func(r chi.Router) {
+			r.Get("/", h.ListBranches)
+			r.Post("/", h.CreateBranch)
+			r.Get("/{id}", h.GetBranch)
+			r.Put("/{id}", h.UpdateBranch)
+			r.Delete("/{id}", h.DeleteBranch)
+		})
+		r.Route("/users", func(r chi.Router) {
+			r.Get("/", h.ListUsers)
+			r.Post("/", h.CreateUser)
+			r.Get("/{id}", h.GetUser)
+			r.Put("/{id}", h.UpdateUser)
+			r.Put("/{id}/status", h.UpdateUserStatus)
+		})
 	})
 }
 
@@ -435,9 +449,11 @@ func (h *Handler) GetOrgSettings(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// If not found, return defaults
 		settings = &model.TenantSettings{
-			TenantID: tenantID,
-			Currency: "KES",
-			Timezone: "Africa/Nairobi",
+			TenantID:              tenantID,
+			Currency:              "KES",
+			Timezone:              "Africa/Nairobi",
+			SessionTimeoutMinutes: 30,
+			AuditTrailEnabled:     true,
 		}
 	}
 	httputil.WriteJSON(w, http.StatusOK, settings)
@@ -446,10 +462,14 @@ func (h *Handler) GetOrgSettings(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UpdateOrgSettings(w http.ResponseWriter, r *http.Request) {
 	tenantID := auth.TenantIDOrDefault(r.Context())
 	var req struct {
-		OrgName     *string `json:"orgName"`
-		CountryCode *string `json:"countryCode"`
-		Currency    *string `json:"currency"`
-		Timezone    *string `json:"timezone"`
+		OrgName               *string `json:"orgName"`
+		CountryCode           *string `json:"countryCode"`
+		Currency              *string `json:"currency"`
+		Timezone              *string `json:"timezone"`
+		TwoFactorEnabled      *bool   `json:"twoFactorEnabled"`
+		SessionTimeoutMinutes *int    `json:"sessionTimeoutMinutes"`
+		AuditTrailEnabled     *bool   `json:"auditTrailEnabled"`
+		IPWhitelistEnabled    *bool   `json:"ipWhitelistEnabled"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
@@ -460,9 +480,11 @@ func (h *Handler) UpdateOrgSettings(w http.ResponseWriter, r *http.Request) {
 	settings, err := h.repo.GetTenantSettings(r.Context(), tenantID)
 	if err != nil {
 		settings = &model.TenantSettings{
-			TenantID: tenantID,
-			Currency: "KES",
-			Timezone: "Africa/Nairobi",
+			TenantID:              tenantID,
+			Currency:              "KES",
+			Timezone:              "Africa/Nairobi",
+			SessionTimeoutMinutes: 30,
+			AuditTrailEnabled:     true,
 		}
 	}
 
@@ -479,6 +501,18 @@ func (h *Handler) UpdateOrgSettings(w http.ResponseWriter, r *http.Request) {
 	if req.Timezone != nil {
 		settings.Timezone = *req.Timezone
 	}
+	if req.TwoFactorEnabled != nil {
+		settings.TwoFactorEnabled = *req.TwoFactorEnabled
+	}
+	if req.SessionTimeoutMinutes != nil {
+		settings.SessionTimeoutMinutes = *req.SessionTimeoutMinutes
+	}
+	if req.AuditTrailEnabled != nil {
+		settings.AuditTrailEnabled = *req.AuditTrailEnabled
+	}
+	if req.IPWhitelistEnabled != nil {
+		settings.IPWhitelistEnabled = *req.IPWhitelistEnabled
+	}
 
 	if err := h.repo.UpsertTenantSettings(r.Context(), settings); err != nil {
 		h.logger.Error("Failed to update tenant settings", zap.Error(err))
@@ -494,6 +528,219 @@ func (h *Handler) UpdateOrgSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httputil.WriteJSON(w, http.StatusOK, saved)
+}
+
+// --- Branch ---
+
+func (h *Handler) ListBranches(w http.ResponseWriter, r *http.Request) {
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	branches, err := h.repo.ListBranches(r.Context(), tenantID)
+	if err != nil {
+		h.logger.Error("Failed to list branches", zap.Error(err))
+		httputil.WriteInternalError(w, "Failed to list branches", r.URL.Path)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, branches)
+}
+
+func (h *Handler) GetBranch(w http.ResponseWriter, r *http.Request) {
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	id := chi.URLParam(r, "id")
+	branch, err := h.repo.GetBranch(r.Context(), tenantID, id)
+	if err != nil {
+		httputil.WriteNotFound(w, "Branch not found", r.URL.Path)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, branch)
+}
+
+func (h *Handler) CreateBranch(w http.ResponseWriter, r *http.Request) {
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	var branch model.Branch
+	if err := json.NewDecoder(r.Body).Decode(&branch); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+	branch.TenantID = tenantID
+	if branch.Status == "" {
+		branch.Status = "ACTIVE"
+	}
+	if branch.Type == "" {
+		branch.Type = "BRANCH"
+	}
+	if branch.Country == "" {
+		branch.Country = "KEN"
+	}
+	if err := h.repo.CreateBranch(r.Context(), &branch); err != nil {
+		h.logger.Error("Failed to create branch", zap.Error(err))
+		httputil.WriteInternalError(w, "Failed to create branch", r.URL.Path)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusCreated, branch)
+}
+
+func (h *Handler) UpdateBranch(w http.ResponseWriter, r *http.Request) {
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	id := chi.URLParam(r, "id")
+
+	// Verify it exists
+	existing, err := h.repo.GetBranch(r.Context(), tenantID, id)
+	if err != nil || existing == nil {
+		httputil.WriteNotFound(w, "Branch not found", r.URL.Path)
+		return
+	}
+
+	var branch model.Branch
+	if err := json.NewDecoder(r.Body).Decode(&branch); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+	branch.ID = id
+	branch.TenantID = tenantID
+	if err := h.repo.UpdateBranch(r.Context(), &branch); err != nil {
+		h.logger.Error("Failed to update branch", zap.Error(err))
+		httputil.WriteInternalError(w, "Failed to update branch", r.URL.Path)
+		return
+	}
+
+	// Re-read to return full record
+	updated, err := h.repo.GetBranch(r.Context(), tenantID, id)
+	if err != nil {
+		httputil.WriteJSON(w, http.StatusOK, branch)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, updated)
+}
+
+func (h *Handler) DeleteBranch(w http.ResponseWriter, r *http.Request) {
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	id := chi.URLParam(r, "id")
+	if err := h.repo.DeleteBranch(r.Context(), tenantID, id); err != nil {
+		h.logger.Error("Failed to delete branch", zap.Error(err))
+		httputil.WriteInternalError(w, "Failed to delete branch", r.URL.Path)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Users ---
+
+func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	page, size := parsePagination(r)
+	users, total, err := h.repo.ListUsers(r.Context(), tenantID, size, page*size)
+	if err != nil {
+		h.logger.Error("Failed to list users", zap.Error(err))
+		httputil.WriteInternalError(w, "Failed to list users", r.URL.Path)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
+		"content":       users,
+		"totalElements": total,
+		"page":          page,
+		"size":          size,
+	})
+}
+
+func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	id := chi.URLParam(r, "id")
+	user, err := h.repo.GetUser(r.Context(), tenantID, id)
+	if err != nil {
+		httputil.WriteNotFound(w, "User not found", r.URL.Path)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, user)
+}
+
+func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	var user model.User
+	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+	if user.Username == "" || user.Name == "" || user.Email == "" {
+		httputil.WriteBadRequest(w, "Username, name, and email are required", r.URL.Path)
+		return
+	}
+	user.TenantID = tenantID
+	if user.Role == "" {
+		user.Role = "USER"
+	}
+	if user.Status == "" {
+		user.Status = "ACTIVE"
+	}
+	if err := h.repo.CreateUser(r.Context(), &user); err != nil {
+		h.logger.Error("Failed to create user", zap.Error(err))
+		httputil.WriteConflict(w, "User with this username already exists", r.URL.Path)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusCreated, user)
+}
+
+func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	id := chi.URLParam(r, "id")
+
+	existing, err := h.repo.GetUser(r.Context(), tenantID, id)
+	if err != nil || existing == nil {
+		httputil.WriteNotFound(w, "User not found", r.URL.Path)
+		return
+	}
+
+	var user model.User
+	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+	user.ID = id
+	user.TenantID = tenantID
+	if user.Status == "" {
+		user.Status = existing.Status
+	}
+	if err := h.repo.UpdateUser(r.Context(), &user); err != nil {
+		h.logger.Error("Failed to update user", zap.Error(err))
+		httputil.WriteInternalError(w, "Failed to update user", r.URL.Path)
+		return
+	}
+
+	updated, err := h.repo.GetUser(r.Context(), tenantID, id)
+	if err != nil {
+		httputil.WriteJSON(w, http.StatusOK, user)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, updated)
+}
+
+func (h *Handler) UpdateUserStatus(w http.ResponseWriter, r *http.Request) {
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	id := chi.URLParam(r, "id")
+
+	var req struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+	if req.Status != "ACTIVE" && req.Status != "INACTIVE" && req.Status != "LOCKED" {
+		httputil.WriteBadRequest(w, "Status must be ACTIVE, INACTIVE, or LOCKED", r.URL.Path)
+		return
+	}
+
+	if err := h.repo.UpdateUserStatus(r.Context(), tenantID, id, req.Status); err != nil {
+		h.logger.Error("Failed to update user status", zap.Error(err))
+		httputil.WriteInternalError(w, "Failed to update user status", r.URL.Path)
+		return
+	}
+
+	user, err := h.repo.GetUser(r.Context(), tenantID, id)
+	if err != nil {
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": req.Status})
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, user)
 }
 
 // --- Helpers ---
