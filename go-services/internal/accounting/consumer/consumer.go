@@ -1,0 +1,243 @@
+package consumer
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/shopspring/decimal"
+	"go.uber.org/zap"
+
+	"github.com/athena-lms/go-services/internal/accounting/service"
+	"github.com/athena-lms/go-services/internal/common/event"
+	"github.com/athena-lms/go-services/internal/common/rabbitmq"
+)
+
+// AccountingConsumer handles incoming domain events for the accounting service.
+type AccountingConsumer struct {
+	svc    *service.AccountingService
+	conn   *rabbitmq.Connection
+	logger *zap.Logger
+}
+
+// New creates a new accounting event consumer.
+func New(svc *service.AccountingService, conn *rabbitmq.Connection, logger *zap.Logger) *AccountingConsumer {
+	return &AccountingConsumer{svc: svc, conn: conn, logger: logger}
+}
+
+// Start begins consuming events from the accounting queue.
+// Blocks until ctx is cancelled.
+func (c *AccountingConsumer) Start(ctx context.Context) error {
+	consumer := event.NewConsumer(c.conn, rabbitmq.AccountingQueue, 3, 5, c.handle, c.logger)
+	return consumer.Start(ctx)
+}
+
+func (c *AccountingConsumer) handle(ctx context.Context, evt *event.DomainEvent) error {
+	eventType := evt.Type
+	tenantID := evt.TenantID
+
+	// Try to get event type from payload if not on envelope
+	var payload map[string]any
+	if err := json.Unmarshal(evt.Payload, &payload); err != nil {
+		c.logger.Error("Failed to unmarshal event payload", zap.Error(err))
+		return nil // don't retry malformed payloads
+	}
+
+	// Handle raw-map events that have eventType in payload
+	if eventType == "" {
+		if et, ok := payload["eventType"].(string); ok {
+			eventType = et
+		} else if et, ok := payload["type"].(string); ok {
+			eventType = et
+		}
+	}
+
+	if eventType == "" {
+		c.logger.Debug("Could not resolve event type, skipping")
+		return nil
+	}
+
+	// Resolve tenant ID from payload if not on envelope
+	if tenantID == "" {
+		if tid, ok := payload["tenantId"].(string); ok {
+			tenantID = tid
+		}
+	}
+
+	// Resolve nested payload if DomainEvent envelope wraps another payload
+	if inner, ok := payload["payload"].(map[string]any); ok {
+		if tenantID == "" {
+			if tid, ok := inner["tenantId"].(string); ok {
+				tenantID = tid
+			}
+		}
+		payload = inner
+	}
+
+	c.logger.Info("Accounting processing event", zap.String("eventType", eventType), zap.String("tenantId", tenantID))
+
+	switch eventType {
+	case "loan.disbursed":
+		return c.handleLoanDisbursed(ctx, payload, tenantID)
+	case "payment.completed":
+		return c.handlePaymentCompleted(ctx, payload, tenantID)
+	case "payment.reversed":
+		return c.handlePaymentReversed(ctx, payload, tenantID)
+	case "loan.closed":
+		c.handleLoanClosed(payload)
+		return nil
+	case "loan.stage.changed":
+		c.handleStageChanged(payload)
+		return nil
+	case "overdraft.drawn":
+		return c.handleOverdraftDrawn(ctx, payload, tenantID)
+	case "overdraft.repaid":
+		return c.handleOverdraftRepaid(ctx, payload, tenantID)
+	case "overdraft.interest.charged":
+		return c.handleOverdraftInterestCharged(ctx, payload, tenantID)
+	case "overdraft.fee.charged":
+		return c.handleOverdraftFeeCharged(ctx, payload, tenantID)
+	default:
+		c.logger.Debug("No accounting handler for event", zap.String("type", eventType))
+		return nil
+	}
+}
+
+func (c *AccountingConsumer) handleLoanDisbursed(ctx context.Context, payload map[string]any, tenantID string) error {
+	sourceID := getStr(payload, "applicationId")
+	if c.svc.EntryExists(ctx, "loan.disbursed", sourceID) {
+		return nil
+	}
+	amount := getDecimal(payload, "amount")
+	return c.svc.PostLoanDisbursement(ctx, tenantID, sourceID, amount)
+}
+
+func (c *AccountingConsumer) handlePaymentCompleted(ctx context.Context, payload map[string]any, tenantID string) error {
+	sourceID := getStr(payload, "paymentId")
+	if sourceID == "" {
+		sourceID = getStr(payload, "internalReference")
+	}
+	if c.svc.EntryExists(ctx, "payment.completed", sourceID) {
+		return nil
+	}
+
+	amount := getDecimal(payload, "amount")
+	paymentType := getStr(payload, "paymentType")
+
+	// Skip disbursements -- already handled by loan.disbursed
+	if paymentType == "LOAN_DISBURSEMENT" {
+		return nil
+	}
+
+	return c.svc.PostRepayment(ctx, tenantID, sourceID, amount, payload)
+}
+
+func (c *AccountingConsumer) handlePaymentReversed(ctx context.Context, payload map[string]any, tenantID string) error {
+	sourceID := getStr(payload, "paymentId")
+	if sourceID == "" {
+		return nil
+	}
+	amount := getDecimal(payload, "amount")
+	return c.svc.PostPaymentReversal(ctx, tenantID, sourceID, amount)
+}
+
+func (c *AccountingConsumer) handleLoanClosed(payload map[string]any) {
+	loanID := getStr(payload, "loanId")
+	c.logger.Info("Loan closed -- no accounting entry required at close (balance already zeroed by repayments)", zap.String("loanId", loanID))
+}
+
+func (c *AccountingConsumer) handleStageChanged(payload map[string]any) {
+	loanID := getStr(payload, "loanId")
+	newStage := getStr(payload, "newStage")
+	c.logger.Info("Loan stage changed -- provision review may be required", zap.String("loanId", loanID), zap.String("newStage", newStage))
+}
+
+func (c *AccountingConsumer) handleOverdraftDrawn(ctx context.Context, payload map[string]any, tenantID string) error {
+	walletID := getStr(payload, "walletId")
+	sourceID := "OD-DRAW-" + walletID
+	if c.svc.EntryExists(ctx, "overdraft.drawn", sourceID) {
+		return nil
+	}
+	amount := getDecimal(payload, "amount")
+	return c.svc.PostOverdraftDrawn(ctx, tenantID, sourceID, amount)
+}
+
+func (c *AccountingConsumer) handleOverdraftRepaid(ctx context.Context, payload map[string]any, tenantID string) error {
+	walletID := getStr(payload, "walletId")
+	sourceID := fmt.Sprintf("OD-RPMT-%s-%d", walletID, time.Now().UnixMilli())
+	if c.svc.EntryExists(ctx, "overdraft.repaid", sourceID) {
+		return nil
+	}
+	amount := getDecimal(payload, "amount")
+	return c.svc.PostOverdraftRepaid(ctx, tenantID, sourceID, amount)
+}
+
+func (c *AccountingConsumer) handleOverdraftInterestCharged(ctx context.Context, payload map[string]any, tenantID string) error {
+	walletID := getStr(payload, "walletId")
+	sourceID := fmt.Sprintf("OD-INT-%s-%d", walletID, time.Now().UnixMilli())
+	if c.svc.EntryExists(ctx, "overdraft.interest.charged", sourceID) {
+		return nil
+	}
+	interest := getDecimal(payload, "interestCharged")
+	return c.svc.PostOverdraftInterestCharged(ctx, tenantID, sourceID, interest)
+}
+
+func (c *AccountingConsumer) handleOverdraftFeeCharged(ctx context.Context, payload map[string]any, tenantID string) error {
+	walletID := getStr(payload, "walletId")
+	reference := getStr(payload, "reference")
+	sourceID := "OD-FEE-"
+	if reference != "" {
+		sourceID += reference
+	} else {
+		sourceID += walletID
+	}
+	if c.svc.EntryExists(ctx, "overdraft.fee.charged", sourceID) {
+		return nil
+	}
+	amount := getDecimal(payload, "amount")
+	return c.svc.PostOverdraftFeeCharged(ctx, tenantID, sourceID, amount)
+}
+
+// --- helpers ---
+
+func getStr(m map[string]any, key string) string {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return ""
+	}
+	s, ok := v.(string)
+	if ok {
+		return s
+	}
+	return fmt.Sprintf("%v", v)
+}
+
+func getDecimal(m map[string]any, key string) decimal.Decimal {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return decimal.Zero
+	}
+	switch val := v.(type) {
+	case float64:
+		return decimal.NewFromFloat(val)
+	case string:
+		d, err := decimal.NewFromString(val)
+		if err != nil {
+			return decimal.Zero
+		}
+		return d
+	case json.Number:
+		d, err := decimal.NewFromString(val.String())
+		if err != nil {
+			return decimal.Zero
+		}
+		return d
+	default:
+		d, err := decimal.NewFromString(fmt.Sprintf("%v", val))
+		if err != nil {
+			return decimal.Zero
+		}
+		return d
+	}
+}

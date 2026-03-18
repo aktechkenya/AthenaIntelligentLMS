@@ -1,0 +1,3 @@
+-- customer_id is already VARCHAR(100) in the initial migration for the Go port.
+-- This migration exists for parity with the Java Flyway V2 migration.
+-- No-op.

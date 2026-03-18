@@ -1,0 +1,2 @@
+-- No-op: customer_id was already VARCHAR(100) in the Go migration.
+-- This migration exists for Flyway version parity with the Java service.

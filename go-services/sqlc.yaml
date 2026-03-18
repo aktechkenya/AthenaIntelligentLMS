@@ -1,0 +1,28 @@
+version: "2"
+sql:
+  # Each service gets its own sqlc generation target.
+  # Uncomment and configure as services are migrated.
+
+  # - engine: "postgresql"
+  #   queries: "sql/account/"
+  #   schema: "migrations/account/"
+  #   gen:
+  #     go:
+  #       package: "repository"
+  #       out: "internal/account/repository"
+  #       sql_package: "pgx/v5"
+  #       emit_json_tags: true
+  #       json_tags_case_style: "camel"
+  #       emit_empty_slices: true
+
+  # - engine: "postgresql"
+  #   queries: "sql/product/"
+  #   schema: "migrations/product/"
+  #   gen:
+  #     go:
+  #       package: "repository"
+  #       out: "internal/product/repository"
+  #       sql_package: "pgx/v5"
+  #       emit_json_tags: true
+  #       json_tags_case_style: "camel"
+  #       emit_empty_slices: true

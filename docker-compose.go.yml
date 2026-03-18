@@ -1,0 +1,446 @@
+# Docker Compose overlay for Go services coexistence.
+# Run: docker compose -f docker-compose.lms.yml -f docker-compose.go.yml up
+#
+# Go services run on 28xxx host ports during migration.
+# RABBITMQ_CONSUME_ENABLED=false prevents duplicate event processing.
+
+x-go-env: &go-env
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_PORT: 5672
+  RABBITMQ_USER: guest
+  RABBITMQ_PASSWORD: guest
+  JWT_SECRET: ${JWT_SECRET}
+  LMS_INTERNAL_SERVICE_KEY: ${LMS_INTERNAL_SERVICE_KEY:-athena-internal-key}
+
+services:
+  go-account-service:
+    build:
+      context: ./go-services
+      dockerfile: deploy/docker/Dockerfile.service
+      args:
+        SERVICE: account-service
+    ports: ["28086:8086"]
+    environment:
+      <<: *go-env
+      PORT: 8086
+      DB_HOST: postgres
+      DB_NAME: athena_accounts
+      SERVICE_NAME: go-account-service
+      RABBITMQ_CONSUME_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks: [athena-net]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8086/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  go-product-service:
+    build:
+      context: ./go-services
+      dockerfile: deploy/docker/Dockerfile.service
+      args:
+        SERVICE: product-service
+    ports: ["28087:8087"]
+    environment:
+      <<: *go-env
+      PORT: 8087
+      DB_HOST: postgres
+      DB_NAME: athena_products
+      SERVICE_NAME: go-product-service
+      RABBITMQ_CONSUME_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks: [athena-net]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8087/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  go-media-service:
+    build:
+      context: ./go-services
+      dockerfile: deploy/docker/Dockerfile.service
+      args:
+        SERVICE: media-service
+    ports: ["28098:8098"]
+    environment:
+      <<: *go-env
+      PORT: 8098
+      DB_HOST: postgres
+      DB_NAME: athena_media
+      SERVICE_NAME: go-media-service
+      RABBITMQ_CONSUME_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks: [athena-net]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8098/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  go-loan-origination-service:
+    build:
+      context: ./go-services
+      dockerfile: deploy/docker/Dockerfile.service
+      args:
+        SERVICE: loan-origination-service
+    ports: ["28088:8088"]
+    environment:
+      <<: *go-env
+      PORT: 8088
+      DB_HOST: postgres
+      DB_NAME: athena_loans
+      SERVICE_NAME: go-loan-origination-service
+      MIGRATE_ON_STARTUP: "false"
+      RABBITMQ_CONSUME_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks: [athena-net]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8088/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  go-loan-management-service:
+    build:
+      context: ./go-services
+      dockerfile: deploy/docker/Dockerfile.service
+      args:
+        SERVICE: loan-management-service
+    ports: ["28089:8089"]
+    environment:
+      <<: *go-env
+      PORT: 8089
+      DB_HOST: postgres
+      DB_NAME: athena_loans
+      SERVICE_NAME: go-loan-management-service
+      RABBITMQ_CONSUME_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks: [athena-net]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8089/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  go-payment-service:
+    build:
+      context: ./go-services
+      dockerfile: deploy/docker/Dockerfile.service
+      args:
+        SERVICE: payment-service
+    ports: ["28090:8090"]
+    environment:
+      <<: *go-env
+      PORT: 8090
+      DB_HOST: postgres
+      DB_NAME: athena_payments
+      SERVICE_NAME: go-payment-service
+      RABBITMQ_CONSUME_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks: [athena-net]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8090/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  go-accounting-service:
+    build:
+      context: ./go-services
+      dockerfile: deploy/docker/Dockerfile.service
+      args:
+        SERVICE: accounting-service
+    ports: ["28091:8091"]
+    environment:
+      <<: *go-env
+      PORT: 8091
+      DB_HOST: postgres
+      DB_NAME: athena_accounting
+      SERVICE_NAME: go-accounting-service
+      RABBITMQ_CONSUME_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks: [athena-net]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8091/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  go-float-service:
+    build:
+      context: ./go-services
+      dockerfile: deploy/docker/Dockerfile.service
+      args:
+        SERVICE: float-service
+    ports: ["28092:8092"]
+    environment:
+      <<: *go-env
+      PORT: 8092
+      DB_HOST: postgres
+      DB_NAME: athena_float
+      SERVICE_NAME: go-float-service
+      RABBITMQ_CONSUME_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks: [athena-net]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8092/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  go-collections-service:
+    build:
+      context: ./go-services
+      dockerfile: deploy/docker/Dockerfile.service
+      args:
+        SERVICE: collections-service
+    ports: ["28093:8093"]
+    environment:
+      <<: *go-env
+      PORT: 8093
+      DB_HOST: postgres
+      DB_NAME: athena_collections
+      SERVICE_NAME: go-collections-service
+      RABBITMQ_CONSUME_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks: [athena-net]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8093/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  go-compliance-service:
+    build:
+      context: ./go-services
+      dockerfile: deploy/docker/Dockerfile.service
+      args:
+        SERVICE: compliance-service
+    ports: ["28094:8094"]
+    environment:
+      <<: *go-env
+      PORT: 8094
+      DB_HOST: postgres
+      DB_NAME: athena_compliance
+      SERVICE_NAME: go-compliance-service
+      RABBITMQ_CONSUME_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks: [athena-net]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8094/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  go-reporting-service:
+    build:
+      context: ./go-services
+      dockerfile: deploy/docker/Dockerfile.service
+      args:
+        SERVICE: reporting-service
+    ports: ["28095:8095"]
+    environment:
+      <<: *go-env
+      PORT: 8095
+      DB_HOST: postgres
+      DB_NAME: athena_reporting
+      SERVICE_NAME: go-reporting-service
+      RABBITMQ_CONSUME_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks: [athena-net]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8095/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  go-ai-scoring-service:
+    build:
+      context: ./go-services
+      dockerfile: deploy/docker/Dockerfile.service
+      args:
+        SERVICE: ai-scoring-service
+    ports: ["28096:8096"]
+    environment:
+      <<: *go-env
+      PORT: 8096
+      DB_HOST: postgres
+      DB_NAME: athena_scoring
+      SERVICE_NAME: go-ai-scoring-service
+      RABBITMQ_CONSUME_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks: [athena-net]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8096/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  go-overdraft-service:
+    build:
+      context: ./go-services
+      dockerfile: deploy/docker/Dockerfile.service
+      args:
+        SERVICE: overdraft-service
+    ports: ["28097:8097"]
+    environment:
+      <<: *go-env
+      PORT: 8097
+      DB_HOST: postgres
+      DB_NAME: athena_overdraft
+      SERVICE_NAME: go-overdraft-service
+      RABBITMQ_CONSUME_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks: [athena-net]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8097/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  go-notification-service:
+    build:
+      context: ./go-services
+      dockerfile: deploy/docker/Dockerfile.service
+      args:
+        SERVICE: notification-service
+    ports: ["28099:8099"]
+    environment:
+      <<: *go-env
+      PORT: 8099
+      DB_HOST: postgres
+      DB_NAME: athena_notifications
+      SERVICE_NAME: go-notification-service
+      RABBITMQ_CONSUME_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks: [athena-net]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8099/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  go-fraud-detection-service:
+    build:
+      context: ./go-services
+      dockerfile: deploy/docker/Dockerfile.service
+      args:
+        SERVICE: fraud-detection-service
+    ports: ["28100:8100"]
+    environment:
+      <<: *go-env
+      PORT: 8100
+      DB_HOST: postgres
+      DB_NAME: athena_fraud
+      SERVICE_NAME: go-fraud-detection-service
+      RABBITMQ_CONSUME_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks: [athena-net]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8100/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  go-lms-api-gateway:
+    build:
+      context: ./go-services
+      dockerfile: deploy/docker/Dockerfile.service
+      args:
+        SERVICE: lms-api-gateway
+    ports: ["28105:8105"]
+    environment:
+      <<: *go-env
+      PORT: 8105
+      SERVICE_NAME: go-lms-api-gateway
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks: [athena-net]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8105/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+networks:
+  athena-net:
+    external: true
