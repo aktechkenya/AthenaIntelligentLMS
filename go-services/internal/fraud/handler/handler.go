@@ -29,53 +29,78 @@ func New(svc *service.Service, eng *engine.Engine, logger *zap.Logger) *Handler 
 	return &Handler{svc: svc, eng: eng, logger: logger}
 }
 
+// registerFraudRoutes registers all fraud routes on the given sub-router.
+func (h *Handler) registerFraudRoutes(r chi.Router) {
+	r.Get("/summary", h.GetSummary)
+	r.Get("/analytics", h.GetAnalytics)
+
+	r.Get("/alerts", h.ListAlerts)
+	r.Get("/alerts/{id}", h.GetAlert)
+	r.Post("/alerts/{id}/resolve", h.ResolveAlert)
+	r.Put("/alerts/{id}/resolve", h.ResolveAlert)
+	r.Post("/alerts/{id}/assign", h.AssignAlert)
+	r.Put("/alerts/{id}/assign", h.AssignAlert)
+	r.Post("/alerts/bulk/assign", h.BulkAssignAlerts)
+	r.Put("/alerts/bulk/assign", h.BulkAssignAlerts)
+	r.Post("/alerts/bulk/resolve", h.BulkResolveAlerts)
+	r.Put("/alerts/bulk/resolve", h.BulkResolveAlerts)
+
+	r.Get("/rules", h.ListRules)
+	r.Get("/rules/{id}", h.GetRule)
+	r.Put("/rules/{id}", h.UpdateRule)
+
+	r.Get("/cases", h.ListCases)
+	r.Post("/cases", h.CreateCase)
+	r.Get("/cases/{id}", h.GetCase)
+	r.Put("/cases/{id}", h.UpdateCase)
+	r.Get("/cases/{id}/notes", h.ListCaseNotes)
+	r.Post("/cases/{id}/notes", h.AddCaseNote)
+	r.Get("/cases/{id}/timeline", h.GetCaseTimeline)
+
+	r.Get("/watchlist", h.ListWatchlistEntries)
+	r.Post("/watchlist", h.CreateWatchlistEntry)
+	r.Get("/watchlist/{id}", h.GetWatchlistEntry)
+	r.Put("/watchlist/{id}/deactivate", h.DeactivateWatchlistEntry)
+	r.Delete("/watchlist/{id}", h.DeactivateWatchlistEntry)
+	r.Post("/watchlist/screen", h.ScreenCustomer)
+
+	r.Get("/events/recent", h.ListRecentEvents)
+
+	// SAR reports — serve on both /sar-reports and /sar paths
+	r.Get("/sar-reports", h.ListSarReports)
+	r.Post("/sar-reports", h.CreateSarReport)
+	r.Get("/sar-reports/{id}", h.GetSarReport)
+	r.Put("/sar-reports/{id}", h.UpdateSarReport)
+	r.Get("/sar", h.ListSarReports)
+	r.Post("/sar", h.CreateSarReport)
+	r.Get("/sar/{id}", h.GetSarReport)
+	r.Put("/sar/{id}", h.UpdateSarReport)
+
+	// Risk profiles — serve on both canonical and frontend paths
+	r.Get("/risk-profiles/high-risk", h.ListHighRiskCustomers)
+	r.Get("/risk-profiles/{customerId}", h.GetRiskProfile)
+	r.Get("/high-risk-customers", h.ListHighRiskCustomers)
+	r.Get("/customer/{customerId}/risk", h.GetRiskProfile)
+	r.Get("/customer/{customerId}/alerts", h.ListCustomerAlerts)
+
+	r.Get("/network/{customerId}", h.ListNetworkLinks)
+
+	// Audit log — serve on both /audit and /audit-log
+	r.Get("/audit", h.ListAuditLog)
+	r.Get("/audit-log", h.ListAuditLog)
+
+	// Screening — alias for watchlist screen
+	r.Post("/screening/customer", h.ScreenCustomer)
+	r.Post("/screening/batch", h.BatchScreen)
+
+	r.Post("/evaluate", h.EvaluateTransaction)
+}
+
 // RegisterRoutes registers all fraud detection routes on the given router.
+// Serves on both /api/v1/fraud and /api/fraud for frontend compatibility.
 func (h *Handler) RegisterRoutes(r chi.Router) {
-	r.Route("/api/v1/fraud", func(r chi.Router) {
-		r.Get("/summary", h.GetSummary)
-		r.Get("/analytics", h.GetAnalytics)
-
-		r.Get("/alerts", h.ListAlerts)
-		r.Get("/alerts/{id}", h.GetAlert)
-		r.Post("/alerts/{id}/resolve", h.ResolveAlert)
-		r.Post("/alerts/{id}/assign", h.AssignAlert)
-		r.Post("/alerts/bulk/assign", h.BulkAssignAlerts)
-		r.Post("/alerts/bulk/resolve", h.BulkResolveAlerts)
-
-		r.Get("/rules", h.ListRules)
-		r.Get("/rules/{id}", h.GetRule)
-		r.Put("/rules/{id}", h.UpdateRule)
-
-		r.Get("/cases", h.ListCases)
-		r.Post("/cases", h.CreateCase)
-		r.Get("/cases/{id}", h.GetCase)
-		r.Put("/cases/{id}", h.UpdateCase)
-		r.Get("/cases/{id}/notes", h.ListCaseNotes)
-		r.Post("/cases/{id}/notes", h.AddCaseNote)
-		r.Get("/cases/{id}/timeline", h.GetCaseTimeline)
-
-		r.Get("/watchlist", h.ListWatchlistEntries)
-		r.Post("/watchlist", h.CreateWatchlistEntry)
-		r.Get("/watchlist/{id}", h.GetWatchlistEntry)
-		r.Put("/watchlist/{id}/deactivate", h.DeactivateWatchlistEntry)
-		r.Post("/watchlist/screen", h.ScreenCustomer)
-
-		r.Get("/events/recent", h.ListRecentEvents)
-
-		r.Get("/sar-reports", h.ListSarReports)
-		r.Post("/sar-reports", h.CreateSarReport)
-		r.Get("/sar-reports/{id}", h.GetSarReport)
-		r.Put("/sar-reports/{id}", h.UpdateSarReport)
-
-		r.Get("/risk-profiles/high-risk", h.ListHighRiskCustomers)
-		r.Get("/risk-profiles/{customerId}", h.GetRiskProfile)
-
-		r.Get("/network/{customerId}", h.ListNetworkLinks)
-
-		r.Get("/audit", h.ListAuditLog)
-
-		r.Post("/evaluate", h.EvaluateTransaction)
-	})
+	r.Route("/api/v1/fraud", h.registerFraudRoutes)
+	r.Route("/api/fraud", h.registerFraudRoutes)
 }
 
 // GetSummary handles GET /api/v1/fraud/summary
@@ -779,6 +804,42 @@ func (h *Handler) UpdateSarReport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, report)
+}
+
+// ListCustomerAlerts handles GET /api/v1/fraud/customer/{customerId}/alerts
+func (h *Handler) ListCustomerAlerts(w http.ResponseWriter, r *http.Request) {
+	customerID := chi.URLParam(r, "customerId")
+	tenantID := auth.TenantIDOrDefault(r.Context())
+
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
+	if size <= 0 {
+		size = 20
+	}
+
+	alerts, total, err := h.svc.ListCustomerAlerts(r.Context(), tenantID, customerID, page, size)
+	if err != nil {
+		h.logger.Error("Failed to list customer alerts", zap.Error(err))
+		httputil.WriteInternalError(w, "Failed to list customer alerts", r.URL.Path)
+		return
+	}
+	if alerts == nil {
+		alerts = []*model.FraudAlert{}
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, dto.NewPageResponse(alerts, page, size, total))
+}
+
+// BatchScreen handles POST /api/v1/fraud/screening/batch
+func (h *Handler) BatchScreen(w http.ResponseWriter, r *http.Request) {
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	result, err := h.svc.BatchScreen(r.Context(), tenantID)
+	if err != nil {
+		h.logger.Error("Failed to run batch screening", zap.Error(err))
+		httputil.WriteInternalError(w, "Failed to run batch screening", r.URL.Path)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, result)
 }
 
 // EvaluateTransaction handles POST /api/v1/fraud/evaluate

@@ -647,6 +647,37 @@ func (s *Service) UpdateSarReport(ctx context.Context, id uuid.UUID, req model.U
 	return report, nil
 }
 
+// ListCustomerAlerts returns paginated alerts for a specific customer.
+func (s *Service) ListCustomerAlerts(ctx context.Context, tenantID, customerID string, page, size int) ([]*model.FraudAlert, int64, error) {
+	return s.repo.ListCustomerAlerts(ctx, tenantID, customerID, page, size)
+}
+
+// BatchScreen screens all customers with risk profiles against the watchlist.
+func (s *Service) BatchScreen(ctx context.Context, tenantID string) (*model.BatchScreeningResult, error) {
+	profiles, err := s.repo.ListAllRiskProfiles(ctx, tenantID)
+	if err != nil {
+		return &model.BatchScreeningResult{}, nil
+	}
+
+	result := &model.BatchScreeningResult{}
+	result.CustomersScreened = len(profiles)
+
+	for _, p := range profiles {
+		matches, err := s.repo.FindWatchlistMatches(ctx, tenantID, p.CustomerID, p.CustomerID, "")
+		if err != nil || len(matches) == 0 {
+			continue
+		}
+		result.MatchesFound += len(matches)
+		result.MatchedCustomerIDs = append(result.MatchedCustomerIDs, p.CustomerID)
+	}
+
+	if result.MatchedCustomerIDs == nil {
+		result.MatchedCustomerIDs = []string{}
+	}
+
+	return result, nil
+}
+
 // ---- helpers ----
 
 func strPtr(s string) *string {
