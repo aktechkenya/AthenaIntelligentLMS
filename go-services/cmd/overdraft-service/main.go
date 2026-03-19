@@ -19,6 +19,7 @@ import (
 	"github.com/athena-lms/go-services/internal/common/event"
 	commonmw "github.com/athena-lms/go-services/internal/common/middleware"
 	"github.com/athena-lms/go-services/internal/common/rabbitmq"
+	"github.com/athena-lms/go-services/internal/overdraft/client"
 	ovevent "github.com/athena-lms/go-services/internal/overdraft/event"
 	"github.com/athena-lms/go-services/internal/overdraft/handler"
 	"github.com/athena-lms/go-services/internal/overdraft/repository"
@@ -91,6 +92,9 @@ func main() {
 	ovPublisher := ovevent.NewPublisher(pub, logger)
 	auditSvc := service.NewAuditService(repo, logger)
 	walletSvc := service.NewWalletService(repo, ovPublisher, auditSvc, logger)
+	scoringURL := envStr("AI_SCORING_URL", "http://go-ai-scoring-service:8096")
+	scoringClient := client.NewScoringClient(scoringURL, cfg.InternalServiceKey, logger)
+	walletSvc.SetScoringClient(scoringClient)
 	eodSvc := service.NewEODService(repo, ovPublisher, auditSvc, logger)
 	h := handler.New(walletSvc, auditSvc, eodSvc, logger)
 

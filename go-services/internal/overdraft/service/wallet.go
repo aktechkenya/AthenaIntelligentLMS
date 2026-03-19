@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/athena-lms/go-services/internal/common/dto"
 	"github.com/athena-lms/go-services/internal/common/errors"
+	"github.com/athena-lms/go-services/internal/overdraft/client"
 	ovEvent "github.com/athena-lms/go-services/internal/overdraft/event"
 	"github.com/athena-lms/go-services/internal/overdraft/model"
 	"github.com/athena-lms/go-services/internal/overdraft/repository"
@@ -18,15 +20,21 @@ import (
 
 // WalletService manages customer wallets and transactions.
 type WalletService struct {
-	repo      *repository.Repository
-	publisher *ovEvent.Publisher
-	audit     *AuditService
-	logger    *zap.Logger
+	repo          *repository.Repository
+	publisher     *ovEvent.Publisher
+	audit         *AuditService
+	scoringClient *client.ScoringClient
+	logger        *zap.Logger
 }
 
 // NewWalletService creates a new WalletService.
 func NewWalletService(repo *repository.Repository, publisher *ovEvent.Publisher, audit *AuditService, logger *zap.Logger) *WalletService {
 	return &WalletService{repo: repo, publisher: publisher, audit: audit, logger: logger}
+}
+
+// SetScoringClient sets the credit scoring client for overdraft applications.
+func (s *WalletService) SetScoringClient(sc *client.ScoringClient) {
+	s.scoringClient = sc
 }
 
 // CreateWallet creates a new customer wallet.
@@ -381,15 +389,134 @@ func toTxResponse(tx *model.WalletTransaction) *model.WalletTransactionResponse 
 }
 
 // ApplyOverdraft applies for an overdraft facility on a wallet.
-func (s *WalletService) ApplyOverdraft(ctx context.Context, walletID uuid.UUID, tenantID string) (map[string]any, error) {
+// Fetches credit score, determines band, looks up band config, creates facility,
+// charges arrangement fee, updates wallet available balance, publishes events.
+func (s *WalletService) ApplyOverdraft(ctx context.Context, walletID uuid.UUID, tenantID string) (*model.OverdraftFacilityResponse, error) {
 	wallet, err := s.repo.FindWalletByTenantAndID(ctx, tenantID, walletID)
 	if err != nil || wallet == nil {
 		return nil, errors.NotFoundResource("Wallet", walletID)
 	}
-	return map[string]any{
-		"walletId": wallet.ID,
-		"status":   "PENDING",
-		"message":  "Overdraft application submitted for review",
+
+	// Check if active facility already exists
+	existing, err := s.repo.FindLatestFacilityByWallet(ctx, walletID)
+	if err != nil {
+		return nil, fmt.Errorf("check existing facility: %w", err)
+	}
+	if existing != nil && existing.Status == "ACTIVE" {
+		return nil, errors.NewBusinessError("Active overdraft facility already exists for this wallet")
+	}
+
+	// Get credit score (from AI scoring service or deterministic mock)
+	var scoreResult client.CreditScoreResult
+	if s.scoringClient != nil {
+		scoreResult = s.scoringClient.GetLatestScore(ctx, wallet.CustomerID)
+	} else {
+		scoreResult = client.CreditScoreResult{Score: 650, Band: "B"}
+	}
+
+	// Look up band configuration for this tenant
+	bandConfig, err := s.repo.FindBandConfigByTenantBandStatus(ctx, tenantID, scoreResult.Band, "ACTIVE")
+	if err != nil {
+		return nil, fmt.Errorf("lookup band config: %w", err)
+	}
+	// Fallback to system tenant config
+	if bandConfig == nil {
+		bandConfig, err = s.repo.FindBandConfigByTenantBandStatus(ctx, "system", scoreResult.Band, "ACTIVE")
+		if err != nil || bandConfig == nil {
+			return nil, errors.NewBusinessError("No credit band configuration found for band: " + scoreResult.Band)
+		}
+	}
+
+	// Create the facility
+	now := time.Now()
+	firstBilling := now.AddDate(0, 1, 0)
+	expiryDate := now.AddDate(1, 0, 0) // 1 year validity
+	facility := &model.OverdraftFacility{
+		TenantID:        tenantID,
+		WalletID:        walletID,
+		CustomerID:      wallet.CustomerID,
+		CreditScore:     scoreResult.Score,
+		CreditBand:      scoreResult.Band,
+		ApprovedLimit:   bandConfig.ApprovedLimit,
+		DrawnAmount:     decimal.Zero,
+		DrawnPrincipal:  decimal.Zero,
+		AccruedInterest: decimal.Zero,
+		InterestRate:    bandConfig.InterestRate,
+		Status:          "ACTIVE",
+		DPD:             0,
+		NPLStage:        "PERFORMING",
+		NextBillingDate: &firstBilling,
+		ExpiryDate:      &expiryDate,
+	}
+
+	if err := s.repo.CreateFacility(ctx, facility); err != nil {
+		return nil, fmt.Errorf("create facility: %w", err)
+	}
+
+	// Charge arrangement fee if applicable
+	if bandConfig.ArrangementFee.GreaterThan(decimal.Zero) {
+		ref := fmt.Sprintf("ARR-FEE-%s", facility.ID.String()[:8])
+		fee := &model.OverdraftFee{
+			TenantID:   tenantID,
+			FacilityID: facility.ID,
+			FeeType:    "ARRANGEMENT",
+			Amount:     bandConfig.ArrangementFee,
+			Reference:  &ref,
+			Status:     "PENDING",
+		}
+		if err := s.repo.CreateFee(ctx, fee); err != nil {
+			s.logger.Warn("Failed to create arrangement fee", zap.Error(err))
+		} else {
+			s.publisher.PublishFeeCharged(ctx, walletID, wallet.CustomerID, "ARRANGEMENT", bandConfig.ArrangementFee, ref, tenantID)
+		}
+	}
+
+	// Update wallet available balance with new overdraft headroom
+	wallet.AvailableBalance = wallet.CurrentBalance.Add(facility.ApprovedLimit)
+	if err := s.repo.UpdateWallet(ctx, wallet); err != nil {
+		s.logger.Warn("Failed to update wallet available balance", zap.Error(err))
+	}
+
+	// Publish event
+	s.publisher.PublishOverdraftApplied(ctx, walletID, wallet.CustomerID, scoreResult.Band, bandConfig.ApprovedLimit, tenantID)
+
+	// Audit trail
+	s.audit.Audit(ctx, tenantID, "FACILITY", facility.ID, "FACILITY_APPROVED",
+		nil,
+		map[string]interface{}{
+			"creditScore":   scoreResult.Score,
+			"creditBand":    scoreResult.Band,
+			"approvedLimit": bandConfig.ApprovedLimit.String(),
+			"interestRate":  bandConfig.InterestRate.String(),
+		},
+		map[string]interface{}{"walletId": walletID.String(), "customerId": wallet.CustomerID})
+
+	s.logger.Info("Overdraft facility approved",
+		zap.String("facilityId", facility.ID.String()),
+		zap.String("walletId", walletID.String()),
+		zap.Int("score", scoreResult.Score),
+		zap.String("band", scoreResult.Band),
+		zap.String("limit", bandConfig.ApprovedLimit.String()))
+
+	return &model.OverdraftFacilityResponse{
+		ID:                 facility.ID,
+		TenantID:           tenantID,
+		WalletID:           walletID,
+		CustomerID:         wallet.CustomerID,
+		CreditScore:        scoreResult.Score,
+		CreditBand:         scoreResult.Band,
+		ApprovedLimit:      bandConfig.ApprovedLimit,
+		DrawnAmount:        decimal.Zero,
+		AvailableOverdraft: bandConfig.ApprovedLimit,
+		InterestRate:       bandConfig.InterestRate,
+		DrawnPrincipal:     decimal.Zero,
+		AccruedInterest:    decimal.Zero,
+		Status:             "ACTIVE",
+		DPD:                0,
+		NPLStage:           "PERFORMING",
+		AppliedAt:          facility.AppliedAt,
+		ApprovedAt:         facility.ApprovedAt,
+		CreatedAt:          facility.CreatedAt,
 	}, nil
 }
 
@@ -405,42 +532,136 @@ func (s *WalletService) GetOverdraftFacility(ctx context.Context, walletID uuid.
 			"available": decimal.Zero,
 		}, nil
 	}
+	available := facility.ApprovedLimit.Sub(facility.DrawnAmount)
+	if available.LessThan(decimal.Zero) {
+		available = decimal.Zero
+	}
 	return map[string]any{
-		"id":        facility.ID,
-		"walletId":  facility.WalletID,
-		"hasOD":     true,
-		"limit":     facility.ApprovedLimit,
-		"drawn":     facility.DrawnAmount,
-		"available": facility.ApprovedLimit.Sub(facility.DrawnAmount),
-		"status":    facility.Status,
+		"id":              facility.ID,
+		"walletId":        facility.WalletID,
+		"customerId":      facility.CustomerID,
+		"hasOD":           true,
+		"creditScore":     facility.CreditScore,
+		"creditBand":      facility.CreditBand,
+		"limit":           facility.ApprovedLimit,
+		"drawn":           facility.DrawnAmount,
+		"drawnPrincipal":  facility.DrawnPrincipal,
+		"accruedInterest": facility.AccruedInterest,
+		"available":       available,
+		"interestRate":    facility.InterestRate,
+		"status":          facility.Status,
+		"dpd":             facility.DPD,
+		"nplStage":        facility.NPLStage,
 	}, nil
 }
 
 // SuspendOverdraft suspends an overdraft facility.
-func (s *WalletService) SuspendOverdraft(ctx context.Context, walletID uuid.UUID, tenantID string) (map[string]any, error) {
-	return map[string]any{
-		"walletId": walletID,
-		"status":   "SUSPENDED",
-		"message":  "Overdraft facility suspended",
+// Recalculates wallet available balance, publishes events, creates audit log.
+func (s *WalletService) SuspendOverdraft(ctx context.Context, walletID uuid.UUID, tenantID string) (*model.OverdraftFacilityResponse, error) {
+	wallet, err := s.repo.FindWalletByTenantAndID(ctx, tenantID, walletID)
+	if err != nil || wallet == nil {
+		return nil, errors.NotFoundResource("Wallet", walletID)
+	}
+
+	facility, err := s.repo.FindLatestFacilityByWallet(ctx, walletID)
+	if err != nil {
+		return nil, fmt.Errorf("lookup facility: %w", err)
+	}
+	if facility == nil {
+		return nil, errors.NewBusinessError("No overdraft facility found for this wallet")
+	}
+	if facility.Status != "ACTIVE" {
+		return nil, errors.NewBusinessError("Facility is not active, current status: " + facility.Status)
+	}
+
+	previousStatus := facility.Status
+	facility.Status = "SUSPENDED"
+	if err := s.repo.UpdateFacility(ctx, facility); err != nil {
+		return nil, fmt.Errorf("update facility: %w", err)
+	}
+
+	// Recalculate wallet available balance (no overdraft headroom when suspended)
+	wallet.AvailableBalance = wallet.CurrentBalance
+	if wallet.AvailableBalance.LessThan(decimal.Zero) {
+		wallet.AvailableBalance = decimal.Zero
+	}
+	if err := s.repo.UpdateWallet(ctx, wallet); err != nil {
+		s.logger.Warn("Failed to update wallet balance", zap.Error(err))
+	}
+
+	// Publish event
+	s.publisher.PublishOverdraftSuspended(ctx, walletID, wallet.CustomerID, tenantID)
+
+	// Audit trail
+	s.audit.Audit(ctx, tenantID, "FACILITY", facility.ID, "SUSPENDED",
+		map[string]interface{}{"status": previousStatus},
+		map[string]interface{}{"status": "SUSPENDED"},
+		map[string]interface{}{"walletId": walletID.String()})
+
+	s.logger.Info("Overdraft facility suspended",
+		zap.String("facilityId", facility.ID.String()),
+		zap.String("walletId", walletID.String()))
+
+	return &model.OverdraftFacilityResponse{
+		ID:                 facility.ID,
+		TenantID:           tenantID,
+		WalletID:           walletID,
+		CustomerID:         wallet.CustomerID,
+		CreditScore:        facility.CreditScore,
+		CreditBand:         facility.CreditBand,
+		ApprovedLimit:      facility.ApprovedLimit,
+		DrawnAmount:        facility.DrawnAmount,
+		AvailableOverdraft: decimal.Zero,
+		InterestRate:       facility.InterestRate,
+		DrawnPrincipal:     facility.DrawnPrincipal,
+		AccruedInterest:    facility.AccruedInterest,
+		Status:             "SUSPENDED",
+		DPD:                facility.DPD,
+		NPLStage:           facility.NPLStage,
+		AppliedAt:          facility.AppliedAt,
+		ApprovedAt:         facility.ApprovedAt,
+		CreatedAt:          facility.CreatedAt,
 	}, nil
 }
 
-// GetSummary returns overdraft summary for the tenant.
-func (s *WalletService) GetSummary(ctx context.Context, tenantID string) (map[string]any, error) {
-	wallets, err := s.ListWallets(ctx, tenantID)
+// GetSummary returns overdraft summary for the tenant with full facility aggregation.
+func (s *WalletService) GetSummary(ctx context.Context, tenantID string) (*model.OverdraftSummaryResponse, error) {
+	facilities, err := s.repo.ListFacilitiesByTenant(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	totalBalance := decimal.Zero
-	for _, w := range wallets {
-		totalBalance = totalBalance.Add(w.CurrentBalance)
+
+	summary := &model.OverdraftSummaryResponse{
+		FacilitiesByBand: make(map[string]int64),
+		DrawnByBand:      make(map[string]decimal.Decimal),
 	}
-	return map[string]any{
-		"totalWallets":   len(wallets),
-		"totalBalance":   totalBalance,
-		"activeOverdrafts": 0,
-		"tenantId":       tenantID,
-	}, nil
+
+	summary.TotalFacilities = int64(len(facilities))
+	summary.TotalApprovedLimit = decimal.Zero
+	summary.TotalDrawnAmount = decimal.Zero
+	summary.TotalAvailableOverdraft = decimal.Zero
+
+	for _, f := range facilities {
+		summary.TotalApprovedLimit = summary.TotalApprovedLimit.Add(f.ApprovedLimit)
+		summary.TotalDrawnAmount = summary.TotalDrawnAmount.Add(f.DrawnAmount)
+		available := f.ApprovedLimit.Sub(f.DrawnAmount)
+		if available.LessThan(decimal.Zero) {
+			available = decimal.Zero
+		}
+		summary.TotalAvailableOverdraft = summary.TotalAvailableOverdraft.Add(available)
+
+		if f.Status == "ACTIVE" {
+			summary.ActiveFacilities++
+		}
+
+		summary.FacilitiesByBand[f.CreditBand]++
+		if _, ok := summary.DrawnByBand[f.CreditBand]; !ok {
+			summary.DrawnByBand[f.CreditBand] = decimal.Zero
+		}
+		summary.DrawnByBand[f.CreditBand] = summary.DrawnByBand[f.CreditBand].Add(f.DrawnAmount)
+	}
+
+	return summary, nil
 }
 
 // GetInterestCharges returns interest charges for the wallet's overdraft facility.
