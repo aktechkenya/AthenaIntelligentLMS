@@ -460,10 +460,29 @@ type ScreenCustomerRequest struct {
 }
 
 type ScoreTransactionRequest struct {
-	CustomerID string  `json:"customerId"`
-	EventType  string  `json:"eventType"`
+	CustomerID string           `json:"customerId"`
+	EventType  string           `json:"eventType"`
 	Amount     *decimal.Decimal `json:"amount"`
-	RuleScore  float64 `json:"ruleScore"`
+	RuleScore  float64          `json:"ruleScore"`
+}
+
+type EvaluateTransactionRequest struct {
+	CustomerID          string           `json:"customerId"`
+	EventType           string           `json:"eventType"`
+	Amount              *decimal.Decimal `json:"amount"`
+	SubjectType         string           `json:"subjectType"`
+	SubjectID           string           `json:"subjectId"`
+	LoanDisbursedAt     *time.Time       `json:"loanDisbursedAt,omitempty"`
+	AccountLastActiveAt *time.Time       `json:"accountLastActiveAt,omitempty"`
+	OverdraftLimit      *decimal.Decimal `json:"overdraftLimit,omitempty"`
+	LoanOutstanding     *decimal.Decimal `json:"loanOutstanding,omitempty"`
+	KycStatus           string           `json:"kycStatus,omitempty"`
+	ReversalCount       int              `json:"reversalCount,omitempty"`
+	TotalPayments       int              `json:"totalPayments,omitempty"`
+	// Fields used for watchlist matching
+	NationalID string `json:"nationalId,omitempty"`
+	Name       string `json:"name,omitempty"`
+	Phone      string `json:"phone,omitempty"`
 }
 
 // ─── Response DTOs ──────────────────────────────────────────────────────────
@@ -573,4 +592,23 @@ func DefaultThresholdConfig() ThresholdConfig {
 		EarlyPayoffDays:            30,
 		LoanCyclingWindowDays:      7,
 	}
+}
+
+// ─── Engine DTOs ────────────────────────────────────────────────────────────
+
+type EvaluateTransactionResponse struct {
+	EventID        uuid.UUID       `json:"eventId"`
+	CustomerID     string          `json:"customerId"`
+	RulesEvaluated int             `json:"rulesEvaluated"`
+	RulesTriggered int             `json:"rulesTriggered"`
+	TriggeredRules []TriggeredRule `json:"triggeredRules"`
+	AlertsCreated  int             `json:"alertsCreated"`
+	RiskScore      float64         `json:"riskScore"`
+}
+
+type TriggeredRule struct {
+	RuleCode    string `json:"ruleCode"`
+	RuleName    string `json:"ruleName"`
+	Severity    string `json:"severity"`
+	Description string `json:"description"`
 }
