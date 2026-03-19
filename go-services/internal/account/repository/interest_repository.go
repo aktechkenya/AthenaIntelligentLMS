@@ -141,6 +141,22 @@ func (r *Repository) ListInterestAccruals(ctx context.Context, accountID uuid.UU
 	return accruals, nil
 }
 
+// ─── Deposit Product Rate Lookup ──────────────────────────────────────────────
+
+// GetDepositProductInterestRate fetches the interest rate from the deposit_products table.
+// This crosses service boundaries (account repo reading product DB) — acceptable because
+// both services share the same PostgreSQL instance in this monorepo.
+func (r *Repository) GetDepositProductInterestRate(ctx context.Context, productID uuid.UUID) (decimal.Decimal, error) {
+	var rate decimal.Decimal
+	err := r.pool.QueryRow(ctx,
+		`SELECT COALESCE(interest_rate, 0) FROM deposit_products WHERE id = $1`,
+		productID).Scan(&rate)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	return rate, nil
+}
+
 // ─── Account Updates for Interest/Dormancy ───────────────────────────────────
 
 // UpdateAccountAccruedInterest updates accrued interest and last accrual date.

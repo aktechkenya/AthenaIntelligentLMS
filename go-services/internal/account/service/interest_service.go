@@ -41,7 +41,14 @@ func (s *InterestService) AccrueInterestForDate(ctx context.Context, tenantID st
 
 	accrued := 0
 	for _, account := range accounts {
-		if err := s.accrueForAccount(ctx, account, date); err != nil {
+		// Skip if already accrued for this date (idempotency)
+		already, _ := s.repo.HasAccrualForDate(ctx, account.ID, date)
+		if already {
+			accrued++
+			continue
+		}
+
+		if _, err := s.accrueForAccount(ctx, account, date); err != nil {
 			s.logger.Warn("Failed to accrue interest for account",
 				zap.String("accountId", account.ID.String()),
 				zap.Error(err))
@@ -58,38 +65,34 @@ func (s *InterestService) AccrueInterestForDate(ctx context.Context, tenantID st
 	return accrued, nil
 }
 
-func (s *InterestService) accrueForAccount(ctx context.Context, account *model.Account, date time.Time) error {
+// accrueForAccount calculates and records a single day's interest for one account.
+// Returns the daily interest amount accrued (zero if skipped).
+func (s *InterestService) accrueForAccount(ctx context.Context, account *model.Account, date time.Time) (decimal.Decimal, error) {
 	bal, err := s.repo.GetBalanceByAccountID(ctx, account.ID)
 	if err != nil {
-		return err
+		return decimal.Zero, err
 	}
 
-	// Determine rate (override takes precedence)
-	rate := decimal.Zero
-	if account.InterestRateOverride != nil {
-		rate = *account.InterestRateOverride
-	}
-	// If no override, rate should come from the deposit product (passed via account or fetched)
-	// For now we use whatever is on the account or override
-
+	// Determine rate: override > deposit product rate > zero
+	rate := s.resolveInterestRate(ctx, account)
 	if rate.IsZero() {
-		return nil // no interest to accrue
+		return decimal.Zero, nil
 	}
 
 	balance := bal.AvailableBalance
 	if balance.LessThanOrEqual(decimal.Zero) {
-		return nil
+		return decimal.Zero, nil
 	}
 
 	// Daily interest = balance * (rate/100) / 365
 	dailyAmount := balance.Mul(rate).Div(decimal.NewFromInt(100)).Div(daysInYear).Round(4)
 	if dailyAmount.IsZero() {
-		return nil
+		return decimal.Zero, nil
 	}
 
 	tx, err := s.repo.Pool().Begin(ctx)
 	if err != nil {
-		return err
+		return decimal.Zero, err
 	}
 	defer tx.Rollback(ctx)
 
@@ -103,25 +106,48 @@ func (s *InterestService) accrueForAccount(ctx context.Context, account *model.A
 		Posted:      false,
 	}
 	if err := s.repo.CreateInterestAccrual(ctx, tx, accrual); err != nil {
-		return err
+		return decimal.Zero, err
 	}
 
-	// Update account's accrued interest total
+	// Update account's accrued interest running total
 	currentAccrued := decimal.Zero
 	if account.AccruedInterest != nil {
 		currentAccrued = *account.AccruedInterest
 	}
 	newAccrued := currentAccrued.Add(dailyAmount)
 	if err := s.repo.UpdateAccountAccruedInterest(ctx, tx, account.ID, newAccrued, date); err != nil {
-		return err
+		return decimal.Zero, err
 	}
 
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return decimal.Zero, err
+	}
+
+	return dailyAmount, nil
+}
+
+// resolveInterestRate determines the effective interest rate for an account.
+// Priority: account override > deposit product rate > zero.
+func (s *InterestService) resolveInterestRate(ctx context.Context, account *model.Account) decimal.Decimal {
+	// 1. Account-level override takes precedence
+	if account.InterestRateOverride != nil && !account.InterestRateOverride.IsZero() {
+		return *account.InterestRateOverride
+	}
+
+	// 2. Fetch from linked deposit product
+	if account.DepositProductID != nil {
+		rate, err := s.repo.GetDepositProductInterestRate(ctx, *account.DepositProductID)
+		if err == nil && !rate.IsZero() {
+			return rate
+		}
+	}
+
+	return decimal.Zero
 }
 
 // PostAccruedInterest posts all unposted interest for an account, deducting 15% WHT.
 func (s *InterestService) PostAccruedInterest(ctx context.Context, accountID uuid.UUID, tenantID, postedBy string) (*model.InterestPosting, error) {
-	account, err := s.repo.GetAccountByIDAndTenant(ctx, accountID, tenantID)
+	_, err := s.repo.GetAccountByIDAndTenant(ctx, accountID, tenantID)
 	if err != nil {
 		return nil, errors.NotFoundResource("Account", accountID)
 	}
@@ -144,7 +170,7 @@ func (s *InterestService) PostAccruedInterest(ctx context.Context, accountID uui
 	}
 	defer tx.Rollback(ctx)
 
-	// Credit net interest to account
+	// Credit net interest to account (under balance lock)
 	balance, err := s.repo.GetBalanceForUpdate(ctx, tx, accountID)
 	if err != nil {
 		return nil, err
@@ -157,9 +183,10 @@ func (s *InterestService) PostAccruedInterest(ctx context.Context, accountID uui
 		return nil, err
 	}
 
-	// Create transaction record
+	// Create transaction record for audit trail
 	newBal := balance.AvailableBalance
-	desc := "Interest posting (net of 15% WHT)"
+	desc := fmt.Sprintf("Interest posting — gross %s, WHT 15%% = %s, net %s",
+		unpostedTotal.StringFixed(2), wht.StringFixed(2), netInterest.StringFixed(2))
 	txn := &model.AccountTransaction{
 		TenantID:        tenantID,
 		AccountID:       accountID,
@@ -173,21 +200,23 @@ func (s *InterestService) PostAccruedInterest(ctx context.Context, accountID uui
 		return nil, err
 	}
 
-	// Find earliest unposted accrual date for period_start
+	// Find period boundaries from unposted accruals
 	accruals, err := s.repo.GetUnpostedAccruals(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
 	periodStart := time.Now()
+	periodEnd := time.Now()
 	if len(accruals) > 0 {
 		periodStart = accruals[0].AccrualDate
+		periodEnd = accruals[len(accruals)-1].AccrualDate
 	}
 
 	posting := &model.InterestPosting{
 		TenantID:       tenantID,
 		AccountID:      accountID,
 		PeriodStart:    periodStart,
-		PeriodEnd:      time.Now(),
+		PeriodEnd:      periodEnd,
 		GrossInterest:  unpostedTotal,
 		WithholdingTax: wht,
 		NetInterest:    netInterest,
@@ -203,8 +232,13 @@ func (s *InterestService) PostAccruedInterest(ctx context.Context, accountID uui
 		return nil, err
 	}
 
-	// Update account interest state
+	// Reset account accrued interest to zero
 	if err := s.repo.UpdateAccountInterestPosted(ctx, tx, accountID, time.Now()); err != nil {
+		return nil, err
+	}
+
+	// Update last transaction date
+	if err := s.repo.UpdateAccountLastTransactionDate(ctx, tx, accountID); err != nil {
 		return nil, err
 	}
 
@@ -214,11 +248,10 @@ func (s *InterestService) PostAccruedInterest(ctx context.Context, accountID uui
 
 	s.logger.Info("Interest posted",
 		zap.String("accountId", accountID.String()),
-		zap.String("gross", unpostedTotal.String()),
-		zap.String("wht", wht.String()),
-		zap.String("net", netInterest.String()))
+		zap.String("gross", unpostedTotal.StringFixed(4)),
+		zap.String("wht", wht.StringFixed(2)),
+		zap.String("net", netInterest.StringFixed(2)))
 
-	_ = account // used for logging context
 	return posting, nil
 }
 
@@ -245,10 +278,10 @@ func (s *InterestService) GetInterestSummary(ctx context.Context, accountID uuid
 	}
 
 	return &InterestSummaryResponse{
-		AccountID:       accountID,
-		UnpostedTotal:   unposted,
-		RecentAccruals:  accruals,
-		PostingHistory:  postings,
+		AccountID:      accountID,
+		UnpostedTotal:  unposted,
+		RecentAccruals: accruals,
+		PostingHistory: postings,
 	}, nil
 }
 

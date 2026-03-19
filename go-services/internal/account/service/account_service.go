@@ -196,7 +196,8 @@ func (s *AccountService) Credit(ctx context.Context, accountID uuid.UUID, req Tr
 		return nil, err
 	}
 
-	if account.Status != model.AccountStatusActive {
+	// Allow credits on ACTIVE and DORMANT accounts (dormant reactivation)
+	if account.Status != model.AccountStatusActive && account.Status != model.AccountStatusDormant {
 		return nil, errors.NewBusinessError(fmt.Sprintf("Account is %s - cannot credit", account.Status))
 	}
 
@@ -205,6 +206,13 @@ func (s *AccountService) Credit(ctx context.Context, accountID uuid.UUID, req Tr
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
+
+	// Auto-reactivate dormant account on credit
+	if account.Status == model.AccountStatusDormant {
+		if err := s.repo.ReactivateAccount(ctx, tx, accountID); err != nil {
+			return nil, fmt.Errorf("reactivate dormant account: %w", err)
+		}
+	}
 
 	balance, err := s.repo.GetBalanceForUpdate(ctx, tx, accountID)
 	if err != nil {
@@ -239,6 +247,11 @@ func (s *AccountService) Credit(ctx context.Context, accountID uuid.UUID, req Tr
 		IdempotencyKey:  req.IdempotencyKey,
 	}
 	if err := s.repo.CreateTransaction(ctx, tx, txn); err != nil {
+		return nil, err
+	}
+
+	// Track last transaction date for dormancy detection
+	if err := s.repo.UpdateAccountLastTransactionDate(ctx, tx, accountID); err != nil {
 		return nil, err
 	}
 
@@ -324,6 +337,11 @@ func (s *AccountService) Debit(ctx context.Context, accountID uuid.UUID, req Tra
 		IdempotencyKey:  req.IdempotencyKey,
 	}
 	if err := s.repo.CreateTransaction(ctx, tx, txn); err != nil {
+		return nil, err
+	}
+
+	// Track last transaction date for dormancy detection
+	if err := s.repo.UpdateAccountLastTransactionDate(ctx, tx, accountID); err != nil {
 		return nil, err
 	}
 

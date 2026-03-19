@@ -106,6 +106,30 @@ type InterestAccrual struct {
 	CreatedAt   time.Time       `json:"createdAt"`
 }
 
+// EODRun tracks a single end-of-day batch run for auditing.
+type EODRun struct {
+	ID                   uuid.UUID        `json:"id"`
+	TenantID             string           `json:"tenantId"`
+	RunDate              time.Time        `json:"runDate"`
+	Status               string           `json:"status"` // RUNNING, COMPLETED, PARTIAL, FAILED
+	InitiatedBy          string           `json:"initiatedBy"`
+	StartedAt            time.Time        `json:"startedAt"`
+	CompletedAt          *time.Time       `json:"completedAt,omitempty"`
+	AccountsAccrued      int              `json:"accountsAccrued"`
+	AccrualErrors        int              `json:"accrualErrors"`
+	DormantDetected      int              `json:"dormantDetected"`
+	DormancyErrors       int              `json:"dormancyErrors"`
+	MaturedProcessed     int              `json:"maturedProcessed"`
+	MaturityErrors       int              `json:"maturityErrors"`
+	InterestPostedCount  int              `json:"interestPosted"`
+	PostingErrors        int              `json:"postingErrors"`
+	FeesApplied          int              `json:"feesApplied"`
+	ErrorDetails         *string          `json:"errorDetails,omitempty"`
+	TotalInterestAccrued decimal.Decimal  `json:"totalInterestAccrued"`
+	TotalInterestPosted  decimal.Decimal  `json:"totalInterestPosted"`
+	TotalWHTDeducted     decimal.Decimal  `json:"totalWhtDeducted"`
+}
+
 // InterestPosting records a periodic interest credit to an account.
 type InterestPosting struct {
 	ID              uuid.UUID       `json:"id"`

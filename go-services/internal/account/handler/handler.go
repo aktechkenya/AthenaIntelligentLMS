@@ -73,6 +73,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	})
 	r.Route("/api/v1/eod", func(r chi.Router) {
 		r.Post("/run", h.RunEOD)
+		r.Get("/history", h.GetEODHistory)
 	})
 	r.Route("/api/v1/customers", func(r chi.Router) {
 		r.Post("/", h.CreateCustomer)
@@ -875,12 +876,30 @@ func (h *Handler) RunEOD(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tenantID := auth.TenantIDOrDefault(r.Context())
-	resp, err := h.eodSvc.RunEOD(r.Context(), tenantID)
+	userID := auth.UserIDFromContext(r.Context())
+	if userID == "" {
+		userID = "system"
+	}
+	resp, err := h.eodSvc.RunEOD(r.Context(), tenantID, userID)
 	if err != nil {
 		h.handleError(w, r, err)
 		return
 	}
 	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) GetEODHistory(w http.ResponseWriter, r *http.Request) {
+	if h.eodSvc == nil {
+		httputil.WriteInternalError(w, "EOD service not available", r.URL.Path)
+		return
+	}
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	runs, err := h.eodSvc.GetEODHistory(r.Context(), tenantID, 30)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, runs)
 }
 
 // --- Helpers ---
