@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 	"github.com/shopspring/decimal"
 
+	"github.com/athena-lms/go-services/internal/accounting/audit"
 	"github.com/athena-lms/go-services/internal/accounting/consumer"
 	acctEvent "github.com/athena-lms/go-services/internal/accounting/event"
 	"github.com/athena-lms/go-services/internal/accounting/handler"
@@ -90,7 +91,8 @@ func main() {
 	// Wire service layer
 	repo := repository.New(pool)
 	acctPublisher := acctEvent.NewPublisher(pub, logger)
-	svc := service.New(repo, acctPublisher, logger)
+	auditLogger := audit.New(repo, logger)
+	svc := service.New(repo, acctPublisher, auditLogger, logger)
 
 	// Start consumer (gated by RABBITMQ_CONSUME_ENABLED)
 	if cfg.RabbitMQConsumeEnabled {

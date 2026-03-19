@@ -44,9 +44,25 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Post("/journal-entries", h.postEntry)
 		r.Get("/journal-entries", h.listEntries)
 		r.Get("/journal-entries/{id}", h.getEntry)
+		r.Post("/journal-entries/{id}/submit", h.submitEntry)
+		r.Post("/journal-entries/{id}/approve", h.approveEntry)
+		r.Post("/journal-entries/{id}/reject", h.rejectEntry)
+		r.Post("/journal-entries/{id}/reverse", h.reverseEntry)
 
 		// Trial Balance
 		r.Get("/trial-balance", h.getTrialBalance)
+
+		// Fiscal Periods
+		r.Get("/periods", h.listPeriods)
+		r.Post("/periods/{year}/{month}/close", h.closePeriod)
+		r.Post("/periods/{year}/{month}/reopen", h.reopenPeriod)
+
+		// Audit Log
+		r.Get("/audit-log", h.listAuditLogs)
+		r.Get("/audit-log/{entityType}/{entityId}", h.getEntityAuditTrail)
+
+		// Cash Flow
+		r.Get("/cash-flow", h.getCashFlow)
 	})
 }
 
@@ -261,10 +277,224 @@ func queryInt(r *http.Request, key string, defaultVal int) int {
 	return n
 }
 
+func (h *Handler) submitEntry(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.WriteBadRequest(w, "invalid UUID", r.URL.Path)
+		return
+	}
+	tenantID := tenantFromRequest(r)
+	resp, err := h.svc.SubmitForApproval(r.Context(), id, tenantID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) approveEntry(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.WriteBadRequest(w, "invalid UUID", r.URL.Path)
+		return
+	}
+	tenantID := tenantFromRequest(r)
+	userID := auth.UserIDFromContext(r.Context())
+	resp, err := h.svc.ApproveEntry(r.Context(), id, tenantID, userID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) rejectEntry(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.WriteBadRequest(w, "invalid UUID", r.URL.Path)
+		return
+	}
+	var req model.RejectEntryRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "invalid request body", r.URL.Path)
+		return
+	}
+	if req.Reason == "" {
+		httputil.WriteBadRequest(w, "reason is required", r.URL.Path)
+		return
+	}
+	tenantID := tenantFromRequest(r)
+	resp, err := h.svc.RejectEntry(r.Context(), id, tenantID, req.Reason)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) reverseEntry(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.WriteBadRequest(w, "invalid UUID", r.URL.Path)
+		return
+	}
+	var req model.ReverseEntryRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "invalid request body", r.URL.Path)
+		return
+	}
+	if req.Reason == "" {
+		httputil.WriteBadRequest(w, "reason is required", r.URL.Path)
+		return
+	}
+	tenantID := tenantFromRequest(r)
+	userID := auth.UserIDFromContext(r.Context())
+	resp, err := h.svc.ReverseEntry(r.Context(), id, tenantID, userID, req.Reason)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusCreated, resp)
+}
+
+func (h *Handler) listPeriods(w http.ResponseWriter, r *http.Request) {
+	tenantID := tenantFromRequest(r)
+	periods, err := h.svc.ListPeriods(r.Context(), tenantID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	if periods == nil {
+		periods = []model.FiscalPeriod{}
+	}
+	httputil.WriteJSON(w, http.StatusOK, periods)
+}
+
+func (h *Handler) closePeriod(w http.ResponseWriter, r *http.Request) {
+	year, err := strconv.Atoi(chi.URLParam(r, "year"))
+	if err != nil {
+		httputil.WriteBadRequest(w, "invalid year", r.URL.Path)
+		return
+	}
+	month, err := strconv.Atoi(chi.URLParam(r, "month"))
+	if err != nil || month < 1 || month > 12 {
+		httputil.WriteBadRequest(w, "invalid month", r.URL.Path)
+		return
+	}
+	tenantID := tenantFromRequest(r)
+	userID := auth.UserIDFromContext(r.Context())
+	period, err := h.svc.ClosePeriod(r.Context(), tenantID, year, month, userID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, period)
+}
+
+func (h *Handler) reopenPeriod(w http.ResponseWriter, r *http.Request) {
+	year, err := strconv.Atoi(chi.URLParam(r, "year"))
+	if err != nil {
+		httputil.WriteBadRequest(w, "invalid year", r.URL.Path)
+		return
+	}
+	month, err := strconv.Atoi(chi.URLParam(r, "month"))
+	if err != nil || month < 1 || month > 12 {
+		httputil.WriteBadRequest(w, "invalid month", r.URL.Path)
+		return
+	}
+	var req model.ReopenPeriodRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "invalid request body", r.URL.Path)
+		return
+	}
+	if req.Reason == "" {
+		httputil.WriteBadRequest(w, "reason is required", r.URL.Path)
+		return
+	}
+	tenantID := tenantFromRequest(r)
+	userID := auth.UserIDFromContext(r.Context())
+	period, err := h.svc.ReopenPeriod(r.Context(), tenantID, year, month, userID, req.Reason)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, period)
+}
+
+func (h *Handler) listAuditLogs(w http.ResponseWriter, r *http.Request) {
+	tenantID := tenantFromRequest(r)
+	page := queryInt(r, "page", 0)
+	size := queryInt(r, "size", 20)
+
+	var entityType, userID *string
+	if et := r.URL.Query().Get("entityType"); et != "" {
+		entityType = &et
+	}
+	if uid := r.URL.Query().Get("userId"); uid != "" {
+		userID = &uid
+	}
+
+	var from, to *time.Time
+	if f := r.URL.Query().Get("from"); f != "" {
+		t, err := time.Parse("2006-01-02", f)
+		if err == nil {
+			from = &t
+		}
+	}
+	if t := r.URL.Query().Get("to"); t != "" {
+		parsed, err := time.Parse("2006-01-02", t)
+		if err == nil {
+			to = &parsed
+		}
+	}
+
+	logs, total, err := h.svc.ListAuditLogs(r.Context(), tenantID, entityType, userID, from, to, page, size)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	if logs == nil {
+		logs = []model.FinancialAuditLog{}
+	}
+	httputil.WriteJSON(w, http.StatusOK, dto.NewPageResponse(logs, page, size, total))
+}
+
+func (h *Handler) getEntityAuditTrail(w http.ResponseWriter, r *http.Request) {
+	entityType := chi.URLParam(r, "entityType")
+	entityID := chi.URLParam(r, "entityId")
+	tenantID := tenantFromRequest(r)
+	logs, err := h.svc.GetEntityAuditTrail(r.Context(), tenantID, entityType, entityID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	if logs == nil {
+		logs = []model.FinancialAuditLog{}
+	}
+	httputil.WriteJSON(w, http.StatusOK, logs)
+}
+
+func (h *Handler) getCashFlow(w http.ResponseWriter, r *http.Request) {
+	tenantID := tenantFromRequest(r)
+	now := time.Now()
+	year := queryInt(r, "year", now.Year())
+	month := queryInt(r, "month", int(now.Month()))
+	resp, err := h.svc.GetCashFlow(r.Context(), tenantID, year, month)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
 func (h *Handler) handleError(w http.ResponseWriter, r *http.Request, err error) {
 	switch e := err.(type) {
 	case *errors.BusinessError:
-		httputil.WriteErrorJSON(w, e.StatusCode, "Unprocessable Entity", e.Message, r.URL.Path)
+		if e.StatusCode == http.StatusForbidden {
+			httputil.WriteForbidden(w, e.Message, r.URL.Path)
+		} else {
+			httputil.WriteErrorJSON(w, e.StatusCode, "Unprocessable Entity", e.Message, r.URL.Path)
+		}
 	case *errors.NotFoundError:
 		httputil.WriteNotFound(w, e.Message, r.URL.Path)
 	default:
