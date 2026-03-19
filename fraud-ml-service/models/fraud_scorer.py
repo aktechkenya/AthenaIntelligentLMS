@@ -50,16 +50,23 @@ class FraudScorer:
         self._load_model()
 
     def _load_model(self):
-        try:
-            model_uri = f"models:/{MODEL_NAME}@{self.model_alias}"
-            self.model = mlflow.lightgbm.load_model(model_uri)
-            logger.info("Fraud model loaded", alias=self.model_alias, uri=model_uri)
-        except Exception as exc:
-            logger.warning(
-                "Fraud model not found — scoring uses rule-based fallback",
-                alias=self.model_alias, error=str(exc),
-            )
-            self.model = None
+        # Try alias first, then fall back to latest version
+        for uri in [
+            f"models:/{MODEL_NAME}@{self.model_alias}",
+            f"models:/{MODEL_NAME}/latest",
+        ]:
+            try:
+                self.model = mlflow.lightgbm.load_model(uri)
+                logger.info("Fraud model loaded", alias=self.model_alias, uri=uri)
+                return
+            except Exception:
+                continue
+
+        logger.warning(
+            "Fraud model not found — scoring uses rule-based fallback",
+            alias=self.model_alias,
+        )
+        self.model = None
 
     def predict(self, features: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
@@ -163,11 +170,26 @@ def train_and_register(
         top_features = sorted(importance.items(), key=lambda kv: -kv[1])[:10]
         mlflow.log_param("top_features", str(top_features[:5]))
 
-        mlflow.lightgbm.log_model(
+        result = mlflow.lightgbm.log_model(
             model,
             artifact_path="model",
             registered_model_name=MODEL_NAME,
         )
+
+        # Set alias on the registered model version
+        try:
+            client = mlflow.tracking.MlflowClient()
+            # Get latest version number
+            versions = client.search_model_versions(f"name='{MODEL_NAME}'")
+            if versions:
+                latest_version = max(v.version for v in versions)
+                client.set_registered_model_alias(MODEL_NAME, register_as, latest_version)
+                # Also set as champion if first model
+                if len(versions) <= 1 or register_as == "champion":
+                    client.set_registered_model_alias(MODEL_NAME, "champion", latest_version)
+                logger.info("Set model alias", alias=register_as, version=latest_version)
+        except Exception as e:
+            logger.warning("Failed to set model alias", error=str(e))
 
         run_id = run.info.run_id
         logger.info("Fraud model trained and registered", run_id=run_id, **metrics)
