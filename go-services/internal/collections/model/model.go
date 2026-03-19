@@ -104,6 +104,7 @@ type CollectionCase struct {
 	CurrentStage      CollectionStage `json:"currentStage"`
 	OutstandingAmount decimal.Decimal `json:"outstandingAmount"`
 	AssignedTo        *string         `json:"assignedTo"`
+	ProductType       *string         `json:"productType"`
 	OpenedAt          time.Time       `json:"openedAt"`
 	ClosedAt          *time.Time      `json:"closedAt"`
 	LastActionAt      *time.Time      `json:"lastActionAt"`
@@ -187,6 +188,7 @@ type CollectionCaseResponse struct {
 	CurrentStage      CollectionStage `json:"currentStage"`
 	OutstandingAmount decimal.Decimal `json:"outstandingAmount"`
 	AssignedTo        *string         `json:"assignedTo"`
+	ProductType       *string         `json:"productType"`
 	OpenedAt          time.Time       `json:"openedAt"`
 	ClosedAt          *time.Time      `json:"closedAt"`
 	LastActionAt      *time.Time      `json:"lastActionAt"`
@@ -266,6 +268,7 @@ func ToCaseResponse(c *CollectionCase) CollectionCaseResponse {
 		CurrentStage:      c.CurrentStage,
 		OutstandingAmount: c.OutstandingAmount,
 		AssignedTo:        c.AssignedTo,
+		ProductType:       c.ProductType,
 		OpenedAt:          c.OpenedAt,
 		ClosedAt:          c.ClosedAt,
 		LastActionAt:      c.LastActionAt,
@@ -306,5 +309,84 @@ func ToPtpResponse(p *PromiseToPay) PtpResponse {
 		BrokenAt:       p.BrokenAt,
 		CreatedAt:      p.CreatedAt,
 		UpdatedAt:      p.UpdatedAt,
+	}
+}
+
+// ---------- Collection Strategy ----------
+
+// CollectionStrategy defines an automated action recommendation rule.
+type CollectionStrategy struct {
+	ID          uuid.UUID  `json:"id"`
+	TenantID    string     `json:"tenantId"`
+	Name        string     `json:"name"`
+	ProductType *string    `json:"productType"`
+	DpdFrom     int        `json:"dpdFrom"`
+	DpdTo       int        `json:"dpdTo"`
+	ActionType  ActionType `json:"actionType"`
+	Priority    int        `json:"priority"`
+	IsActive    bool       `json:"isActive"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
+}
+
+// StrategyResponse is the JSON response for a collection strategy.
+type StrategyResponse struct {
+	ID          uuid.UUID  `json:"id"`
+	TenantID    string     `json:"tenantId"`
+	Name        string     `json:"name"`
+	ProductType *string    `json:"productType"`
+	DpdFrom     int        `json:"dpdFrom"`
+	DpdTo       int        `json:"dpdTo"`
+	ActionType  ActionType `json:"actionType"`
+	Priority    int        `json:"priority"`
+	IsActive    bool       `json:"isActive"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
+}
+
+// CreateStrategyRequest is the request body for creating a strategy.
+type CreateStrategyRequest struct {
+	Name        string     `json:"name"`
+	ProductType *string    `json:"productType"`
+	DpdFrom     int        `json:"dpdFrom"`
+	DpdTo       int        `json:"dpdTo"`
+	ActionType  ActionType `json:"actionType"`
+	Priority    int        `json:"priority"`
+	IsActive    *bool      `json:"isActive"`
+}
+
+// UpdateStrategyRequest is the request body for updating a strategy.
+type UpdateStrategyRequest struct {
+	Name        *string     `json:"name"`
+	ProductType *string     `json:"productType"`
+	DpdFrom     *int        `json:"dpdFrom"`
+	DpdTo       *int        `json:"dpdTo"`
+	ActionType  *ActionType `json:"actionType"`
+	Priority    *int        `json:"priority"`
+	IsActive    *bool       `json:"isActive"`
+}
+
+// RecommendedAction is a strategy-driven recommended action for a case.
+type RecommendedAction struct {
+	StrategyID   uuid.UUID  `json:"strategyId"`
+	StrategyName string     `json:"strategyName"`
+	ActionType   ActionType `json:"actionType"`
+	Priority     int        `json:"priority"`
+}
+
+// ToStrategyResponse converts a CollectionStrategy entity to its response DTO.
+func ToStrategyResponse(s *CollectionStrategy) StrategyResponse {
+	return StrategyResponse{
+		ID:          s.ID,
+		TenantID:    s.TenantID,
+		Name:        s.Name,
+		ProductType: s.ProductType,
+		DpdFrom:     s.DpdFrom,
+		DpdTo:       s.DpdTo,
+		ActionType:  s.ActionType,
+		Priority:    s.Priority,
+		IsActive:    s.IsActive,
+		CreatedAt:   s.CreatedAt,
+		UpdatedAt:   s.UpdatedAt,
 	}
 }

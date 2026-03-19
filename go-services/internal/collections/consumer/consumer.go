@@ -38,6 +38,8 @@ func (l *CollectionsEventListener) Handle(ctx context.Context, evt *commonevent.
 		return l.handleLoanClosed(ctx, evt, false)
 	case commonevent.LoanWrittenOff:
 		return l.handleLoanClosed(ctx, evt, true)
+	case commonevent.LoanRepaymentReceived:
+		return l.handleRepaymentReceived(ctx, evt)
 	default:
 		l.logger.Debug("Unhandled event type in collections", zap.String("type", evt.Type))
 		return nil
@@ -138,5 +140,41 @@ func (l *CollectionsEventListener) handleLoanClosed(ctx context.Context, evt *co
 		zap.String("loanId", p.LoanID),
 		zap.Bool("writtenOff", writtenOff),
 	)
+	return nil
+}
+
+type repaymentPayload struct {
+	LoanID string          `json:"loanId"`
+	Amount json.RawMessage `json:"amount"`
+}
+
+func (l *CollectionsEventListener) handleRepaymentReceived(ctx context.Context, evt *commonevent.DomainEvent) error {
+	var p repaymentPayload
+	if err := evt.UnmarshalPayload(&p); err != nil {
+		return fmt.Errorf("unmarshal repayment payload: %w", err)
+	}
+	if p.LoanID == "" || evt.TenantID == "" {
+		return nil
+	}
+
+	loanID, err := uuid.Parse(p.LoanID)
+	if err != nil {
+		return fmt.Errorf("parse loanId: %w", err)
+	}
+
+	var amount decimal.Decimal
+	if len(p.Amount) > 0 && string(p.Amount) != "null" {
+		if err := json.Unmarshal(p.Amount, &amount); err != nil {
+			l.logger.Warn("Failed to parse repayment amount, skipping PTP fulfilment",
+				zap.String("loanId", p.LoanID),
+				zap.Error(err),
+			)
+			return nil
+		}
+	}
+
+	if err := l.svc.FulfillPtpsForPayment(ctx, loanID, amount, evt.TenantID); err != nil {
+		return fmt.Errorf("fulfil ptps for payment: %w", err)
+	}
 	return nil
 }

@@ -36,19 +36,23 @@ func (h *Handler) Routes(r chi.Router) {
 
 		// Cases
 		r.Get("/cases", h.ListCases)
-		r.Get("/cases/{id}/detail", h.GetCaseDetail)
-		r.Get("/cases/{id}", h.GetCase)
+		r.Get("/cases/overdue-followups", h.GetOverdueFollowUps)
 		r.Get("/cases/loan/{loanId}", h.GetCaseByLoan)
+		r.Get("/cases/{id}/detail", h.GetCaseDetail)
+		r.Get("/cases/{id}/actions", h.ListActions)
+		r.Get("/cases/{id}/ptps", h.ListPtps)
+		r.Get("/cases/{id}/recommended-actions", h.GetRecommendedActions)
+		r.Get("/cases/{id}", h.GetCase)
 		r.Put("/cases/{id}", h.UpdateCase)
 		r.Post("/cases/{id}/close", h.CloseCase)
-
-		// Actions
 		r.Post("/cases/{id}/actions", h.AddAction)
-		r.Get("/cases/{id}/actions", h.ListActions)
-
-		// PTPs
 		r.Post("/cases/{id}/ptps", h.AddPtp)
-		r.Get("/cases/{id}/ptps", h.ListPtps)
+
+		// Strategies
+		r.Get("/strategies", h.ListStrategies)
+		r.Post("/strategies", h.CreateStrategy)
+		r.Put("/strategies/{id}", h.UpdateStrategy)
+		r.Delete("/strategies/{id}", h.DeleteStrategy)
 	})
 }
 
@@ -289,4 +293,98 @@ func queryInt(r *http.Request, key string, fallback int) int {
 		return fallback
 	}
 	return n
+}
+
+// -----------------------------------------------------------------------
+// Strategy handlers
+// -----------------------------------------------------------------------
+
+// ListStrategies returns all collection strategies for the tenant.
+func (h *Handler) ListStrategies(w http.ResponseWriter, r *http.Request) {
+	tenantID := tenantID(r)
+	resp, err := h.svc.ListStrategies(r.Context(), tenantID)
+	if err != nil {
+		middleware.HandleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// CreateStrategy creates a new collection strategy.
+func (h *Handler) CreateStrategy(w http.ResponseWriter, r *http.Request) {
+	var req model.CreateStrategyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+	tenantID := tenantID(r)
+	resp, err := h.svc.CreateStrategy(r.Context(), req, tenantID)
+	if err != nil {
+		middleware.HandleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusCreated, resp)
+}
+
+// UpdateStrategy updates an existing collection strategy.
+func (h *Handler) UpdateStrategy(w http.ResponseWriter, r *http.Request) {
+	id, err := uuidParam(r, "id")
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid strategy ID", r.URL.Path)
+		return
+	}
+	var req model.UpdateStrategyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+	tenantID := tenantID(r)
+	resp, err := h.svc.UpdateStrategy(r.Context(), id, req, tenantID)
+	if err != nil {
+		middleware.HandleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// DeleteStrategy deletes a collection strategy.
+func (h *Handler) DeleteStrategy(w http.ResponseWriter, r *http.Request) {
+	id, err := uuidParam(r, "id")
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid strategy ID", r.URL.Path)
+		return
+	}
+	tenantID := tenantID(r)
+	if err := h.svc.DeleteStrategy(r.Context(), id, tenantID); err != nil {
+		middleware.HandleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusNoContent, nil)
+}
+
+// GetRecommendedActions returns strategy-driven recommended actions for a case.
+func (h *Handler) GetRecommendedActions(w http.ResponseWriter, r *http.Request) {
+	id, err := uuidParam(r, "id")
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid case ID", r.URL.Path)
+		return
+	}
+	tenantID := tenantID(r)
+	resp, err := h.svc.EvaluateStrategies(r.Context(), id, tenantID)
+	if err != nil {
+		middleware.HandleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// GetOverdueFollowUps returns cases with overdue follow-up actions.
+func (h *Handler) GetOverdueFollowUps(w http.ResponseWriter, r *http.Request) {
+	tenantID := tenantID(r)
+	resp, err := h.svc.GetOverdueFollowUps(r.Context(), tenantID)
+	if err != nil {
+		middleware.HandleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
 }

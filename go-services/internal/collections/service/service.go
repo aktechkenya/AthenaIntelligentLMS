@@ -18,11 +18,12 @@ import (
 
 // CollectionsService contains all business logic for the collections domain.
 type CollectionsService struct {
-	caseRepo   *repository.CollectionCaseRepository
-	actionRepo *repository.CollectionActionRepository
-	ptpRepo    *repository.PtpRepository
-	publisher  *event.Publisher
-	logger     *zap.Logger
+	caseRepo     *repository.CollectionCaseRepository
+	actionRepo   *repository.CollectionActionRepository
+	ptpRepo      *repository.PtpRepository
+	strategyRepo *repository.StrategyRepository
+	publisher    *event.Publisher
+	logger       *zap.Logger
 }
 
 // NewCollectionsService creates a new CollectionsService.
@@ -30,15 +31,17 @@ func NewCollectionsService(
 	caseRepo *repository.CollectionCaseRepository,
 	actionRepo *repository.CollectionActionRepository,
 	ptpRepo *repository.PtpRepository,
+	strategyRepo *repository.StrategyRepository,
 	publisher *event.Publisher,
 	logger *zap.Logger,
 ) *CollectionsService {
 	return &CollectionsService{
-		caseRepo:   caseRepo,
-		actionRepo: actionRepo,
-		ptpRepo:    ptpRepo,
-		publisher:  publisher,
-		logger:     logger,
+		caseRepo:     caseRepo,
+		actionRepo:   actionRepo,
+		ptpRepo:      ptpRepo,
+		strategyRepo: strategyRepo,
+		publisher:    publisher,
+		logger:       logger,
 	}
 }
 
@@ -625,4 +628,239 @@ func mapStage(stage string) model.CollectionStage {
 
 func isWorseStage(current, next model.CollectionStage) bool {
 	return model.StageOrdinal(next) > model.StageOrdinal(current)
+}
+
+// -----------------------------------------------------------------------
+// Strategies
+// -----------------------------------------------------------------------
+
+// CreateStrategy creates a new collection strategy.
+func (s *CollectionsService) CreateStrategy(ctx context.Context, req model.CreateStrategyRequest, tenantID string) (*model.StrategyResponse, error) {
+	if req.Name == "" {
+		return nil, errors.BadRequest("name is required")
+	}
+	if req.ActionType == "" {
+		return nil, errors.BadRequest("actionType is required")
+	}
+
+	isActive := true
+	if req.IsActive != nil {
+		isActive = *req.IsActive
+	}
+
+	strategy := &model.CollectionStrategy{
+		TenantID:    tenantID,
+		Name:        req.Name,
+		ProductType: req.ProductType,
+		DpdFrom:     req.DpdFrom,
+		DpdTo:       req.DpdTo,
+		ActionType:  req.ActionType,
+		Priority:    req.Priority,
+		IsActive:    isActive,
+	}
+
+	saved, err := s.strategyRepo.Save(ctx, strategy)
+	if err != nil {
+		return nil, fmt.Errorf("save strategy: %w", err)
+	}
+	resp := model.ToStrategyResponse(saved)
+	return &resp, nil
+}
+
+// UpdateStrategy updates an existing collection strategy.
+func (s *CollectionsService) UpdateStrategy(ctx context.Context, id uuid.UUID, req model.UpdateStrategyRequest, tenantID string) (*model.StrategyResponse, error) {
+	existing, err := s.strategyRepo.FindByTenantIDAndID(ctx, tenantID, id)
+	if err != nil {
+		return nil, fmt.Errorf("find strategy: %w", err)
+	}
+	if existing == nil {
+		return nil, errors.NotFoundResource("Collection strategy", id)
+	}
+
+	if req.Name != nil {
+		existing.Name = *req.Name
+	}
+	if req.ProductType != nil {
+		existing.ProductType = req.ProductType
+	}
+	if req.DpdFrom != nil {
+		existing.DpdFrom = *req.DpdFrom
+	}
+	if req.DpdTo != nil {
+		existing.DpdTo = *req.DpdTo
+	}
+	if req.ActionType != nil {
+		existing.ActionType = *req.ActionType
+	}
+	if req.Priority != nil {
+		existing.Priority = *req.Priority
+	}
+	if req.IsActive != nil {
+		existing.IsActive = *req.IsActive
+	}
+
+	saved, err := s.strategyRepo.Save(ctx, existing)
+	if err != nil {
+		return nil, fmt.Errorf("update strategy: %w", err)
+	}
+	resp := model.ToStrategyResponse(saved)
+	return &resp, nil
+}
+
+// DeleteStrategy deletes a collection strategy.
+func (s *CollectionsService) DeleteStrategy(ctx context.Context, id uuid.UUID, tenantID string) error {
+	existing, err := s.strategyRepo.FindByTenantIDAndID(ctx, tenantID, id)
+	if err != nil {
+		return fmt.Errorf("find strategy: %w", err)
+	}
+	if existing == nil {
+		return errors.NotFoundResource("Collection strategy", id)
+	}
+	return s.strategyRepo.Delete(ctx, tenantID, id)
+}
+
+// ListStrategies returns all strategies for a tenant.
+func (s *CollectionsService) ListStrategies(ctx context.Context, tenantID string) ([]model.StrategyResponse, error) {
+	strategies, err := s.strategyRepo.FindByTenantID(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("list strategies: %w", err)
+	}
+	responses := make([]model.StrategyResponse, len(strategies))
+	for i, st := range strategies {
+		responses[i] = model.ToStrategyResponse(st)
+	}
+	return responses, nil
+}
+
+// EvaluateStrategies returns recommended actions for a case based on matching strategies.
+func (s *CollectionsService) EvaluateStrategies(ctx context.Context, caseID uuid.UUID, tenantID string) ([]model.RecommendedAction, error) {
+	c, err := s.caseRepo.FindByTenantIDAndID(ctx, tenantID, caseID)
+	if err != nil {
+		return nil, fmt.Errorf("find case: %w", err)
+	}
+	if c == nil {
+		return nil, errors.NotFoundResource("Collection case", caseID)
+	}
+
+	strategies, err := s.strategyRepo.FindActiveByTenantIDAndDPD(ctx, tenantID, c.CurrentDPD, c.ProductType)
+	if err != nil {
+		return nil, fmt.Errorf("find strategies: %w", err)
+	}
+
+	recommendations := make([]model.RecommendedAction, len(strategies))
+	for i, st := range strategies {
+		recommendations[i] = model.RecommendedAction{
+			StrategyID:   st.ID,
+			StrategyName: st.Name,
+			ActionType:   st.ActionType,
+			Priority:     st.Priority,
+		}
+	}
+	return recommendations, nil
+}
+
+// -----------------------------------------------------------------------
+// PTP Auto-Fulfilment
+// -----------------------------------------------------------------------
+
+// FulfillPtpsForPayment checks pending PTPs for a loan and fulfils those where payment >= promised amount.
+func (s *CollectionsService) FulfillPtpsForPayment(ctx context.Context, loanID uuid.UUID, paymentAmount decimal.Decimal, tenantID string) error {
+	c, err := s.caseRepo.FindByLoanID(ctx, loanID)
+	if err != nil {
+		return fmt.Errorf("find case by loan: %w", err)
+	}
+	if c == nil {
+		s.logger.Debug("No collection case for loan, skipping PTP fulfilment", zap.String("loanId", loanID.String()))
+		return nil
+	}
+
+	pendingPtps, err := s.ptpRepo.FindPendingByCaseID(ctx, c.ID)
+	if err != nil {
+		return fmt.Errorf("find pending ptps: %w", err)
+	}
+
+	now := time.Now().UTC()
+	fulfilled := 0
+	for _, ptp := range pendingPtps {
+		if paymentAmount.GreaterThanOrEqual(ptp.PromisedAmount) {
+			ptp.Status = model.PtpStatusFulfilled
+			ptp.FulfilledAt = &now
+			if _, err := s.ptpRepo.Save(ctx, ptp); err != nil {
+				s.logger.Error("Failed to fulfil PTP",
+					zap.String("ptpId", ptp.ID.String()),
+					zap.Error(err),
+				)
+				continue
+			}
+			fulfilled++
+		}
+	}
+
+	if fulfilled > 0 {
+		s.logger.Info("Auto-fulfilled PTPs for payment",
+			zap.String("loanId", loanID.String()),
+			zap.Int("fulfilled", fulfilled),
+		)
+	}
+	return nil
+}
+
+// -----------------------------------------------------------------------
+// Follow-Up SLA Tracking
+// -----------------------------------------------------------------------
+
+// GetOverdueFollowUps returns cases with overdue next_action_date for a tenant.
+func (s *CollectionsService) GetOverdueFollowUps(ctx context.Context, tenantID string) ([]model.CollectionCaseResponse, error) {
+	cases, err := s.caseRepo.FindOverdueFollowUps(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("find overdue follow-ups: %w", err)
+	}
+	responses := make([]model.CollectionCaseResponse, len(cases))
+	for i, c := range cases {
+		responses[i] = model.ToCaseResponse(c)
+	}
+	return responses, nil
+}
+
+// EscalateOverdueFollowUps finds all overdue follow-ups and escalates priority if overdue > 3 days.
+func (s *CollectionsService) EscalateOverdueFollowUps(ctx context.Context) error {
+	cases, err := s.caseRepo.FindAllOverdueFollowUps(ctx)
+	if err != nil {
+		return fmt.Errorf("find all overdue follow-ups: %w", err)
+	}
+
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	escalated := 0
+	for _, c := range cases {
+		// Get the latest action to check how overdue it is
+		latestAction, err := s.actionRepo.FindLatestActionByCaseID(ctx, c.ID)
+		if err != nil || latestAction == nil || latestAction.NextActionDate == nil {
+			continue
+		}
+
+		overdueDays := int(today.Sub(*latestAction.NextActionDate).Hours() / 24)
+		if overdueDays > 3 {
+			// Escalate priority
+			newPriority := model.CasePriorityHigh
+			if c.Priority == model.CasePriorityHigh {
+				newPriority = model.CasePriorityCritical
+			} else if c.Priority == model.CasePriorityCritical {
+				continue // Already at highest
+			}
+			c.Priority = newPriority
+			if _, err := s.caseRepo.Save(ctx, c); err != nil {
+				s.logger.Error("Failed to escalate overdue case",
+					zap.String("caseId", c.ID.String()),
+					zap.Error(err),
+				)
+				continue
+			}
+			escalated++
+		}
+	}
+
+	if escalated > 0 {
+		s.logger.Info("Escalated overdue follow-up cases", zap.Int("count", escalated))
+	}
+	return nil
 }

@@ -9,20 +9,23 @@ import (
 
 	"github.com/athena-lms/go-services/internal/collections/model"
 	"github.com/athena-lms/go-services/internal/collections/repository"
+	"github.com/athena-lms/go-services/internal/collections/service"
 )
 
-// PtpCheckScheduler marks expired promises to pay as BROKEN.
-// Runs daily at 06:00 UTC, matching the Java @Scheduled(cron = "0 0 6 * * *").
+// PtpCheckScheduler marks expired promises to pay as BROKEN and escalates overdue follow-ups.
+// PTP check runs daily at 06:00 UTC, follow-up SLA check runs daily at 07:00 UTC.
 type PtpCheckScheduler struct {
 	ptpRepo *repository.PtpRepository
+	svc     *service.CollectionsService
 	logger  *zap.Logger
 	cron    *cron.Cron
 }
 
 // NewPtpCheckScheduler creates a new scheduler.
-func NewPtpCheckScheduler(ptpRepo *repository.PtpRepository, logger *zap.Logger) *PtpCheckScheduler {
+func NewPtpCheckScheduler(ptpRepo *repository.PtpRepository, svc *service.CollectionsService, logger *zap.Logger) *PtpCheckScheduler {
 	return &PtpCheckScheduler{
 		ptpRepo: ptpRepo,
+		svc:     svc,
 		logger:  logger,
 	}
 }
@@ -35,8 +38,13 @@ func (s *PtpCheckScheduler) Start() {
 		s.logger.Error("Failed to schedule PTP check", zap.Error(err))
 		return
 	}
+	_, err = s.cron.AddFunc("0 7 * * *", s.escalateOverdueFollowUps)
+	if err != nil {
+		s.logger.Error("Failed to schedule follow-up SLA check", zap.Error(err))
+		return
+	}
 	s.cron.Start()
-	s.logger.Info("PTP check scheduler started (daily at 06:00 UTC)")
+	s.logger.Info("Collection schedulers started (PTP check at 06:00 UTC, follow-up SLA at 07:00 UTC)")
 }
 
 // Stop stops the cron scheduler.
@@ -79,4 +87,13 @@ func (s *PtpCheckScheduler) markExpiredPtpsAsBroken() {
 	}
 
 	s.logger.Info("PTP check: marked expired promises as BROKEN", zap.Int("count", count))
+}
+
+func (s *PtpCheckScheduler) escalateOverdueFollowUps() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := s.svc.EscalateOverdueFollowUps(ctx); err != nil {
+		s.logger.Error("Follow-up SLA check: failed to escalate overdue cases", zap.Error(err))
+	}
 }

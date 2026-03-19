@@ -45,12 +45,12 @@ func (r *CollectionCaseRepository) Save(ctx context.Context, c *model.Collection
 		_, err := r.pool.Exec(ctx, `
 			INSERT INTO collection_cases
 				(id, tenant_id, loan_id, customer_id, case_number, status, priority,
-				 current_dpd, current_stage, outstanding_amount, assigned_to, opened_at,
+				 current_dpd, current_stage, outstanding_amount, assigned_to, product_type, opened_at,
 				 closed_at, last_action_at, notes, created_at, updated_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
 			c.ID, c.TenantID, c.LoanID, c.CustomerID, c.CaseNumber,
 			string(c.Status), string(c.Priority), c.CurrentDPD, string(c.CurrentStage),
-			c.OutstandingAmount, c.AssignedTo, c.OpenedAt, c.ClosedAt, c.LastActionAt,
+			c.OutstandingAmount, c.AssignedTo, c.ProductType, c.OpenedAt, c.ClosedAt, c.LastActionAt,
 			c.Notes, c.CreatedAt, c.UpdatedAt,
 		)
 		if err != nil {
@@ -64,12 +64,12 @@ func (r *CollectionCaseRepository) Save(ctx context.Context, c *model.Collection
 		UPDATE collection_cases SET
 			tenant_id=$2, loan_id=$3, customer_id=$4, case_number=$5, status=$6,
 			priority=$7, current_dpd=$8, current_stage=$9, outstanding_amount=$10,
-			assigned_to=$11, opened_at=$12, closed_at=$13, last_action_at=$14,
-			notes=$15, updated_at=$16
+			assigned_to=$11, product_type=$12, opened_at=$13, closed_at=$14, last_action_at=$15,
+			notes=$16, updated_at=$17
 		WHERE id=$1`,
 		c.ID, c.TenantID, c.LoanID, c.CustomerID, c.CaseNumber,
 		string(c.Status), string(c.Priority), c.CurrentDPD, string(c.CurrentStage),
-		c.OutstandingAmount, c.AssignedTo, c.OpenedAt, c.ClosedAt, c.LastActionAt,
+		c.OutstandingAmount, c.AssignedTo, c.ProductType, c.OpenedAt, c.ClosedAt, c.LastActionAt,
 		c.Notes, c.UpdatedAt,
 	)
 	if err != nil {
@@ -242,8 +242,82 @@ func (r *CollectionCaseRepository) SumTotalOutstanding(ctx context.Context, tena
 	return amount, err
 }
 
+// FindOverdueFollowUps returns open/in-progress cases where the latest action's next_action_date is overdue.
+func (r *CollectionCaseRepository) FindOverdueFollowUps(ctx context.Context, tenantID string) ([]*model.CollectionCase, error) {
+	query := `SELECT ` + caseColumns + ` FROM collection_cases c
+		WHERE c.tenant_id=$1
+		  AND c.status NOT IN ('CLOSED','WRITTEN_OFF')
+		  AND EXISTS (
+		    SELECT 1 FROM collection_actions a
+		    WHERE a.case_id = c.id
+		      AND a.next_action_date < CURRENT_DATE
+		      AND a.id = (
+		        SELECT id FROM collection_actions
+		        WHERE case_id = c.id
+		        ORDER BY performed_at DESC
+		        LIMIT 1
+		      )
+		  )`
+	return r.scanMany(ctx, query, tenantID)
+}
+
+// FindAllOverdueFollowUps returns overdue follow-up cases across all tenants (for scheduler use).
+func (r *CollectionCaseRepository) FindAllOverdueFollowUps(ctx context.Context) ([]*model.CollectionCase, error) {
+	query := `SELECT ` + caseColumns + ` FROM collection_cases c
+		WHERE c.status NOT IN ('CLOSED','WRITTEN_OFF')
+		  AND EXISTS (
+		    SELECT 1 FROM collection_actions a
+		    WHERE a.case_id = c.id
+		      AND a.next_action_date < CURRENT_DATE
+		      AND a.id = (
+		        SELECT id FROM collection_actions
+		        WHERE case_id = c.id
+		        ORDER BY performed_at DESC
+		        LIMIT 1
+		      )
+		  )`
+	return r.scanMany(ctx, query)
+}
+
+// FindLatestActionByCaseID returns the most recent action for a case.
+func (r *CollectionActionRepository) FindLatestActionByCaseID(ctx context.Context, caseID uuid.UUID) (*model.CollectionAction, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, tenant_id, case_id, action_type, outcome, notes,
+			   contact_person, contact_method, performed_by, performed_at,
+			   next_action_date, created_at
+		FROM collection_actions
+		WHERE case_id=$1
+		ORDER BY performed_at DESC
+		LIMIT 1`, caseID)
+	if err != nil {
+		return nil, fmt.Errorf("query latest action: %w", err)
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		return nil, nil
+	}
+	var a model.CollectionAction
+	var actionType string
+	var outcome *string
+	err = rows.Scan(
+		&a.ID, &a.TenantID, &a.CaseID, &actionType, &outcome,
+		&a.Notes, &a.ContactPerson, &a.ContactMethod, &a.PerformedBy,
+		&a.PerformedAt, &a.NextActionDate, &a.CreatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("scan latest action: %w", err)
+	}
+	a.ActionType = model.ActionType(actionType)
+	if outcome != nil {
+		o := model.ActionOutcome(*outcome)
+		a.Outcome = &o
+	}
+	return &a, nil
+}
+
 const caseColumns = `id, tenant_id, loan_id, customer_id, case_number, status, priority,
-	current_dpd, current_stage, outstanding_amount, assigned_to, opened_at,
+	current_dpd, current_stage, outstanding_amount, assigned_to, product_type, opened_at,
 	closed_at, last_action_at, notes, created_at, updated_at`
 
 func scanCase(row pgx.Row) (*model.CollectionCase, error) {
@@ -253,7 +327,7 @@ func scanCase(row pgx.Row) (*model.CollectionCase, error) {
 	err := row.Scan(
 		&c.ID, &c.TenantID, &c.LoanID, &c.CustomerID, &c.CaseNumber,
 		&status, &priority, &c.CurrentDPD, &stage, &outstandingAmount,
-		&c.AssignedTo, &c.OpenedAt, &c.ClosedAt, &c.LastActionAt,
+		&c.AssignedTo, &c.ProductType, &c.OpenedAt, &c.ClosedAt, &c.LastActionAt,
 		&c.Notes, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err != nil {
@@ -459,6 +533,21 @@ func (r *PtpRepository) FindByCaseIDOrderByCreatedAtDesc(ctx context.Context, ca
 		ORDER BY created_at DESC`, caseID)
 	if err != nil {
 		return nil, fmt.Errorf("query ptps: %w", err)
+	}
+	defer rows.Close()
+	return r.scanRows(rows)
+}
+
+// FindPendingByCaseID returns all pending PTPs for a given case.
+func (r *PtpRepository) FindPendingByCaseID(ctx context.Context, caseID uuid.UUID) ([]*model.PromiseToPay, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, tenant_id, case_id, promised_amount, promise_date, status,
+			   notes, created_by, fulfilled_at, broken_at, created_at, updated_at
+		FROM promises_to_pay
+		WHERE case_id=$1 AND status='PENDING'
+		ORDER BY promise_date ASC`, caseID)
+	if err != nil {
+		return nil, fmt.Errorf("query pending ptps: %w", err)
 	}
 	defer rows.Close()
 	return r.scanRows(rows)
