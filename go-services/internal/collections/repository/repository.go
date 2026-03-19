@@ -46,12 +46,14 @@ func (r *CollectionCaseRepository) Save(ctx context.Context, c *model.Collection
 			INSERT INTO collection_cases
 				(id, tenant_id, loan_id, customer_id, case_number, status, priority,
 				 current_dpd, current_stage, outstanding_amount, assigned_to, product_type, opened_at,
-				 closed_at, last_action_at, notes, created_at, updated_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+				 closed_at, last_action_at, notes, write_off_reason, write_off_requested_by,
+				 write_off_approved_by, created_at, updated_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
 			c.ID, c.TenantID, c.LoanID, c.CustomerID, c.CaseNumber,
 			string(c.Status), string(c.Priority), c.CurrentDPD, string(c.CurrentStage),
 			c.OutstandingAmount, c.AssignedTo, c.ProductType, c.OpenedAt, c.ClosedAt, c.LastActionAt,
-			c.Notes, c.CreatedAt, c.UpdatedAt,
+			c.Notes, c.WriteOffReason, c.WriteOffRequestedBy, c.WriteOffApprovedBy,
+			c.CreatedAt, c.UpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("insert collection case: %w", err)
@@ -65,12 +67,14 @@ func (r *CollectionCaseRepository) Save(ctx context.Context, c *model.Collection
 			tenant_id=$2, loan_id=$3, customer_id=$4, case_number=$5, status=$6,
 			priority=$7, current_dpd=$8, current_stage=$9, outstanding_amount=$10,
 			assigned_to=$11, product_type=$12, opened_at=$13, closed_at=$14, last_action_at=$15,
-			notes=$16, updated_at=$17
+			notes=$16, write_off_reason=$17, write_off_requested_by=$18,
+			write_off_approved_by=$19, updated_at=$20
 		WHERE id=$1`,
 		c.ID, c.TenantID, c.LoanID, c.CustomerID, c.CaseNumber,
 		string(c.Status), string(c.Priority), c.CurrentDPD, string(c.CurrentStage),
 		c.OutstandingAmount, c.AssignedTo, c.ProductType, c.OpenedAt, c.ClosedAt, c.LastActionAt,
-		c.Notes, c.UpdatedAt,
+		c.Notes, c.WriteOffReason, c.WriteOffRequestedBy, c.WriteOffApprovedBy,
+		c.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("update collection case: %w", err)
@@ -318,7 +322,8 @@ func (r *CollectionActionRepository) FindLatestActionByCaseID(ctx context.Contex
 
 const caseColumns = `id, tenant_id, loan_id, customer_id, case_number, status, priority,
 	current_dpd, current_stage, outstanding_amount, assigned_to, product_type, opened_at,
-	closed_at, last_action_at, notes, created_at, updated_at`
+	closed_at, last_action_at, notes, write_off_reason, write_off_requested_by,
+	write_off_approved_by, created_at, updated_at`
 
 func scanCase(row pgx.Row) (*model.CollectionCase, error) {
 	var c model.CollectionCase
@@ -328,7 +333,8 @@ func scanCase(row pgx.Row) (*model.CollectionCase, error) {
 		&c.ID, &c.TenantID, &c.LoanID, &c.CustomerID, &c.CaseNumber,
 		&status, &priority, &c.CurrentDPD, &stage, &outstandingAmount,
 		&c.AssignedTo, &c.ProductType, &c.OpenedAt, &c.ClosedAt, &c.LastActionAt,
-		&c.Notes, &c.CreatedAt, &c.UpdatedAt,
+		&c.Notes, &c.WriteOffReason, &c.WriteOffRequestedBy, &c.WriteOffApprovedBy,
+		&c.CreatedAt, &c.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -585,6 +591,16 @@ func (r *PtpRepository) scanRows(rows pgx.Rows) ([]*model.PromiseToPay, error) {
 	return results, rows.Err()
 }
 
+// CountOpenByAssignedTo returns the number of open/in-progress cases assigned to a given user.
+func (r *CollectionCaseRepository) CountOpenByAssignedTo(ctx context.Context, tenantID, username string) (int64, error) {
+	var count int64
+	err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM collection_cases
+		WHERE tenant_id=$1 AND assigned_to=$2
+		  AND status NOT IN ('CLOSED','WRITTEN_OFF')`, tenantID, username).Scan(&count)
+	return count, err
+}
+
 // nilableString converts *ActionOutcome to *string for DB storage.
 func nilableString(o *model.ActionOutcome) *string {
 	if o == nil {
@@ -592,4 +608,228 @@ func nilableString(o *model.ActionOutcome) *string {
 	}
 	s := string(*o)
 	return &s
+}
+
+// ---------- Phase 3: Bulk Operations ----------
+
+// BulkAssign assigns multiple cases to a given officer.
+func (r *CollectionCaseRepository) BulkAssign(ctx context.Context, tenantID string, caseIDs []uuid.UUID, assignedTo string) (int64, error) {
+	now := time.Now().UTC()
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE collection_cases SET assigned_to=$3, updated_at=$4
+		WHERE tenant_id=$1 AND id = ANY($2)`,
+		tenantID, caseIDs, assignedTo, now)
+	if err != nil {
+		return 0, fmt.Errorf("bulk assign: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// BulkPriority updates priority for multiple cases.
+func (r *CollectionCaseRepository) BulkPriority(ctx context.Context, tenantID string, caseIDs []uuid.UUID, priority model.CasePriority) (int64, error) {
+	now := time.Now().UTC()
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE collection_cases SET priority=$3, updated_at=$4
+		WHERE tenant_id=$1 AND id = ANY($2)`,
+		tenantID, caseIDs, string(priority), now)
+	if err != nil {
+		return 0, fmt.Errorf("bulk priority: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// ---------- Phase 4: Analytics ----------
+
+// GetStageAgeing returns count and total outstanding grouped by stage for open cases.
+func (r *CollectionCaseRepository) GetStageAgeing(ctx context.Context, tenantID string) ([]model.StageAgeing, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT current_stage, COUNT(*), COALESCE(SUM(outstanding_amount), 0)
+		FROM collection_cases
+		WHERE tenant_id=$1 AND status NOT IN ('CLOSED','WRITTEN_OFF')
+		GROUP BY current_stage
+		ORDER BY current_stage`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("stage ageing: %w", err)
+	}
+	defer rows.Close()
+
+	var results []model.StageAgeing
+	for rows.Next() {
+		var sa model.StageAgeing
+		if err := rows.Scan(&sa.Stage, &sa.Count, &sa.Amount); err != nil {
+			return nil, fmt.Errorf("scan stage ageing: %w", err)
+		}
+		results = append(results, sa)
+	}
+	return results, rows.Err()
+}
+
+// CountNewCases returns the count of cases opened within the given date range.
+func (r *CollectionCaseRepository) CountNewCases(ctx context.Context, tenantID string, from, to time.Time) (int64, error) {
+	var count int64
+	err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM collection_cases
+		WHERE tenant_id=$1 AND opened_at >= $2 AND opened_at < $3`, tenantID, from, to).Scan(&count)
+	return count, err
+}
+
+// CountClosedCases returns the count of cases closed within the given date range.
+func (r *CollectionCaseRepository) CountClosedCases(ctx context.Context, tenantID string, from, to time.Time) (int64, error) {
+	var count int64
+	err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM collection_cases
+		WHERE tenant_id=$1 AND closed_at >= $2 AND closed_at < $3`, tenantID, from, to).Scan(&count)
+	return count, err
+}
+
+// AvgDPDOpenCases returns the average DPD for open cases.
+func (r *CollectionCaseRepository) AvgDPDOpenCases(ctx context.Context, tenantID string) (float64, error) {
+	var avg *float64
+	err := r.pool.QueryRow(ctx, `
+		SELECT AVG(current_dpd)::float8 FROM collection_cases
+		WHERE tenant_id=$1 AND status NOT IN ('CLOSED','WRITTEN_OFF')`, tenantID).Scan(&avg)
+	if err != nil {
+		return 0, err
+	}
+	if avg == nil {
+		return 0, nil
+	}
+	return *avg, nil
+}
+
+// GetRecoveryStats returns the total outstanding of cases closed in the period and
+// total outstanding of all cases open at any point in the period.
+func (r *CollectionCaseRepository) GetRecoveryStats(ctx context.Context, tenantID string, from, to time.Time) (closedAmount, totalAmount decimal.Decimal, err error) {
+	err = r.pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(outstanding_amount), 0)
+		FROM collection_cases
+		WHERE tenant_id=$1 AND closed_at >= $2 AND closed_at < $3`, tenantID, from, to).Scan(&closedAmount)
+	if err != nil {
+		return decimal.Zero, decimal.Zero, fmt.Errorf("recovery closed: %w", err)
+	}
+	err = r.pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(outstanding_amount), 0)
+		FROM collection_cases
+		WHERE tenant_id=$1 AND opened_at < $3
+		  AND (closed_at IS NULL OR closed_at >= $2)`, tenantID, from, to).Scan(&totalAmount)
+	if err != nil {
+		return decimal.Zero, decimal.Zero, fmt.Errorf("recovery total: %w", err)
+	}
+	return closedAmount, totalAmount, nil
+}
+
+// GetOfficerPerformance returns officer performance metrics within the given date range.
+func (r *CollectionCaseRepository) GetOfficerPerformance(ctx context.Context, tenantID string, from, to time.Time) ([]model.OfficerPerformance, error) {
+	rows, err := r.pool.Query(ctx, `
+		WITH officers AS (
+			SELECT DISTINCT assigned_to AS username
+			FROM collection_cases
+			WHERE tenant_id=$1 AND assigned_to IS NOT NULL
+		),
+		active AS (
+			SELECT assigned_to, COUNT(*) AS cnt
+			FROM collection_cases
+			WHERE tenant_id=$1 AND status NOT IN ('CLOSED','WRITTEN_OFF') AND assigned_to IS NOT NULL
+			GROUP BY assigned_to
+		),
+		actions AS (
+			SELECT c.assigned_to, COUNT(a.id) AS cnt
+			FROM collection_actions a
+			JOIN collection_cases c ON a.case_id = c.id
+			WHERE c.tenant_id=$1 AND a.performed_at >= $2 AND a.performed_at < $3
+			  AND c.assigned_to IS NOT NULL
+			GROUP BY c.assigned_to
+		),
+		ptps AS (
+			SELECT c.assigned_to,
+				COUNT(p.id) AS created,
+				COUNT(p.id) FILTER (WHERE p.status='FULFILLED') AS fulfilled
+			FROM promises_to_pay p
+			JOIN collection_cases c ON p.case_id = c.id
+			WHERE c.tenant_id=$1 AND p.created_at >= $2 AND p.created_at < $3
+			  AND c.assigned_to IS NOT NULL
+			GROUP BY c.assigned_to
+		),
+		closed AS (
+			SELECT assigned_to, COUNT(*) AS cnt,
+				AVG(EXTRACT(EPOCH FROM (closed_at - opened_at)) / 86400.0) AS avg_days
+			FROM collection_cases
+			WHERE tenant_id=$1 AND closed_at >= $2 AND closed_at < $3 AND assigned_to IS NOT NULL
+			GROUP BY assigned_to
+		)
+		SELECT o.username,
+			COALESCE(act.cnt, 0),
+			COALESCE(ac.cnt, 0),
+			COALESCE(pt.created, 0),
+			COALESCE(pt.fulfilled, 0),
+			COALESCE(cl.cnt, 0),
+			COALESCE(cl.avg_days, 0)
+		FROM officers o
+		LEFT JOIN active act ON o.username = act.assigned_to
+		LEFT JOIN actions ac ON o.username = ac.assigned_to
+		LEFT JOIN ptps pt ON o.username = pt.assigned_to
+		LEFT JOIN closed cl ON o.username = cl.assigned_to
+		ORDER BY o.username`,
+		tenantID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("officer performance: %w", err)
+	}
+	defer rows.Close()
+
+	var results []model.OfficerPerformance
+	for rows.Next() {
+		var op model.OfficerPerformance
+		if err := rows.Scan(&op.Username, &op.ActiveCases, &op.ActionsCount,
+			&op.PtpsCreated, &op.PtpsFulfilled, &op.CasesClosed, &op.AvgResolutionDays); err != nil {
+			return nil, fmt.Errorf("scan officer performance: %w", err)
+		}
+		results = append(results, op)
+	}
+	return results, rows.Err()
+}
+
+// GetAgeingReport returns cases grouped by DPD buckets.
+func (r *CollectionCaseRepository) GetAgeingReport(ctx context.Context, tenantID string) ([]model.AgeingBucket, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT
+			CASE
+				WHEN current_dpd BETWEEN 1 AND 30 THEN '1-30'
+				WHEN current_dpd BETWEEN 31 AND 60 THEN '31-60'
+				WHEN current_dpd BETWEEN 61 AND 90 THEN '61-90'
+				ELSE '90+'
+			END AS bucket,
+			COUNT(*),
+			COALESCE(SUM(outstanding_amount), 0),
+			product_type
+		FROM collection_cases
+		WHERE tenant_id=$1 AND status NOT IN ('CLOSED','WRITTEN_OFF')
+		GROUP BY bucket, product_type
+		ORDER BY bucket, product_type`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("ageing report: %w", err)
+	}
+	defer rows.Close()
+
+	var results []model.AgeingBucket
+	for rows.Next() {
+		var ab model.AgeingBucket
+		if err := rows.Scan(&ab.Bucket, &ab.Count, &ab.Amount, &ab.ProductType); err != nil {
+			return nil, fmt.Errorf("scan ageing bucket: %w", err)
+		}
+		results = append(results, ab)
+	}
+	return results, rows.Err()
+}
+
+// GetFulfilmentStats returns PTP fulfilment statistics for the given date range.
+func (r *PtpRepository) GetFulfilmentStats(ctx context.Context, tenantID string, from, to time.Time) (fulfilled, total int64, err error) {
+	err = r.pool.QueryRow(ctx, `
+		SELECT
+			COUNT(*) FILTER (WHERE p.status = 'FULFILLED') AS fulfilled,
+			COUNT(*) AS total
+		FROM promises_to_pay p
+		JOIN collection_cases c ON p.case_id = c.id
+		WHERE c.tenant_id=$1 AND p.created_at >= $2 AND p.created_at < $3`,
+		tenantID, from, to).Scan(&fulfilled, &total)
+	return
 }

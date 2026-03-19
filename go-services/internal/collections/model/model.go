@@ -14,8 +14,9 @@ const (
 	CaseStatusOpen         CaseStatus = "OPEN"
 	CaseStatusInProgress   CaseStatus = "IN_PROGRESS"
 	CaseStatusPendingLegal CaseStatus = "PENDING_LEGAL"
-	CaseStatusWrittenOff   CaseStatus = "WRITTEN_OFF"
-	CaseStatusClosed       CaseStatus = "CLOSED"
+	CaseStatusWriteOffRequested CaseStatus = "WRITE_OFF_REQUESTED"
+	CaseStatusWrittenOff        CaseStatus = "WRITTEN_OFF"
+	CaseStatusClosed            CaseStatus = "CLOSED"
 )
 
 // CasePriority represents the priority of a collection case.
@@ -93,24 +94,27 @@ const (
 
 // CollectionCase is the main collection case entity.
 type CollectionCase struct {
-	ID                uuid.UUID       `json:"id"`
-	TenantID          string          `json:"tenantId"`
-	LoanID            uuid.UUID       `json:"loanId"`
-	CustomerID        *string         `json:"customerId"`
-	CaseNumber        string          `json:"caseNumber"`
-	Status            CaseStatus      `json:"status"`
-	Priority          CasePriority    `json:"priority"`
-	CurrentDPD        int             `json:"currentDpd"`
-	CurrentStage      CollectionStage `json:"currentStage"`
-	OutstandingAmount decimal.Decimal `json:"outstandingAmount"`
-	AssignedTo        *string         `json:"assignedTo"`
-	ProductType       *string         `json:"productType"`
-	OpenedAt          time.Time       `json:"openedAt"`
-	ClosedAt          *time.Time      `json:"closedAt"`
-	LastActionAt      *time.Time      `json:"lastActionAt"`
-	Notes             *string         `json:"notes"`
-	CreatedAt         time.Time       `json:"createdAt"`
-	UpdatedAt         time.Time       `json:"updatedAt"`
+	ID                  uuid.UUID       `json:"id"`
+	TenantID            string          `json:"tenantId"`
+	LoanID              uuid.UUID       `json:"loanId"`
+	CustomerID          *string         `json:"customerId"`
+	CaseNumber          string          `json:"caseNumber"`
+	Status              CaseStatus      `json:"status"`
+	Priority            CasePriority    `json:"priority"`
+	CurrentDPD          int             `json:"currentDpd"`
+	CurrentStage        CollectionStage `json:"currentStage"`
+	OutstandingAmount   decimal.Decimal `json:"outstandingAmount"`
+	AssignedTo          *string         `json:"assignedTo"`
+	ProductType         *string         `json:"productType"`
+	OpenedAt            time.Time       `json:"openedAt"`
+	ClosedAt            *time.Time      `json:"closedAt"`
+	LastActionAt        *time.Time      `json:"lastActionAt"`
+	Notes               *string         `json:"notes"`
+	WriteOffReason      *string         `json:"writeOffReason"`
+	WriteOffRequestedBy *string         `json:"writeOffRequestedBy"`
+	WriteOffApprovedBy  *string         `json:"writeOffApprovedBy"`
+	CreatedAt           time.Time       `json:"createdAt"`
+	UpdatedAt           time.Time       `json:"updatedAt"`
 }
 
 // CollectionAction represents an action taken on a collection case.
@@ -177,24 +181,27 @@ type UpdateCaseRequest struct {
 
 // CollectionCaseResponse is the JSON response for a collection case.
 type CollectionCaseResponse struct {
-	ID                uuid.UUID       `json:"id"`
-	TenantID          string          `json:"tenantId"`
-	LoanID            uuid.UUID       `json:"loanId"`
-	CustomerID        *string         `json:"customerId"`
-	CaseNumber        string          `json:"caseNumber"`
-	Status            CaseStatus      `json:"status"`
-	Priority          CasePriority    `json:"priority"`
-	CurrentDPD        int             `json:"currentDpd"`
-	CurrentStage      CollectionStage `json:"currentStage"`
-	OutstandingAmount decimal.Decimal `json:"outstandingAmount"`
-	AssignedTo        *string         `json:"assignedTo"`
-	ProductType       *string         `json:"productType"`
-	OpenedAt          time.Time       `json:"openedAt"`
-	ClosedAt          *time.Time      `json:"closedAt"`
-	LastActionAt      *time.Time      `json:"lastActionAt"`
-	Notes             *string         `json:"notes"`
-	CreatedAt         time.Time       `json:"createdAt"`
-	UpdatedAt         time.Time       `json:"updatedAt"`
+	ID                  uuid.UUID       `json:"id"`
+	TenantID            string          `json:"tenantId"`
+	LoanID              uuid.UUID       `json:"loanId"`
+	CustomerID          *string         `json:"customerId"`
+	CaseNumber          string          `json:"caseNumber"`
+	Status              CaseStatus      `json:"status"`
+	Priority            CasePriority    `json:"priority"`
+	CurrentDPD          int             `json:"currentDpd"`
+	CurrentStage        CollectionStage `json:"currentStage"`
+	OutstandingAmount   decimal.Decimal `json:"outstandingAmount"`
+	AssignedTo          *string         `json:"assignedTo"`
+	ProductType         *string         `json:"productType"`
+	OpenedAt            time.Time       `json:"openedAt"`
+	ClosedAt            *time.Time      `json:"closedAt"`
+	LastActionAt        *time.Time      `json:"lastActionAt"`
+	Notes               *string         `json:"notes"`
+	WriteOffReason      *string         `json:"writeOffReason,omitempty"`
+	WriteOffRequestedBy *string         `json:"writeOffRequestedBy,omitempty"`
+	WriteOffApprovedBy  *string         `json:"writeOffApprovedBy,omitempty"`
+	CreatedAt           time.Time       `json:"createdAt"`
+	UpdatedAt           time.Time       `json:"updatedAt"`
 }
 
 // CollectionActionResponse is the JSON response for a collection action.
@@ -257,24 +264,27 @@ type CollectionCaseDetailResponse struct {
 // ToCaseResponse converts a CollectionCase entity to its response DTO.
 func ToCaseResponse(c *CollectionCase) CollectionCaseResponse {
 	return CollectionCaseResponse{
-		ID:                c.ID,
-		TenantID:          c.TenantID,
-		LoanID:            c.LoanID,
-		CustomerID:        c.CustomerID,
-		CaseNumber:        c.CaseNumber,
-		Status:            c.Status,
-		Priority:          c.Priority,
-		CurrentDPD:        c.CurrentDPD,
-		CurrentStage:      c.CurrentStage,
-		OutstandingAmount: c.OutstandingAmount,
-		AssignedTo:        c.AssignedTo,
-		ProductType:       c.ProductType,
-		OpenedAt:          c.OpenedAt,
-		ClosedAt:          c.ClosedAt,
-		LastActionAt:      c.LastActionAt,
-		Notes:             c.Notes,
-		CreatedAt:         c.CreatedAt,
-		UpdatedAt:         c.UpdatedAt,
+		ID:                  c.ID,
+		TenantID:            c.TenantID,
+		LoanID:              c.LoanID,
+		CustomerID:          c.CustomerID,
+		CaseNumber:          c.CaseNumber,
+		Status:              c.Status,
+		Priority:            c.Priority,
+		CurrentDPD:          c.CurrentDPD,
+		CurrentStage:        c.CurrentStage,
+		OutstandingAmount:   c.OutstandingAmount,
+		AssignedTo:          c.AssignedTo,
+		ProductType:         c.ProductType,
+		OpenedAt:            c.OpenedAt,
+		ClosedAt:            c.ClosedAt,
+		LastActionAt:        c.LastActionAt,
+		Notes:               c.Notes,
+		WriteOffReason:      c.WriteOffReason,
+		WriteOffRequestedBy: c.WriteOffRequestedBy,
+		WriteOffApprovedBy:  c.WriteOffApprovedBy,
+		CreatedAt:           c.CreatedAt,
+		UpdatedAt:           c.UpdatedAt,
 	}
 }
 
@@ -372,6 +382,150 @@ type RecommendedAction struct {
 	StrategyName string     `json:"strategyName"`
 	ActionType   ActionType `json:"actionType"`
 	Priority     int        `json:"priority"`
+}
+
+// ---------- Bulk Operation DTOs ----------
+
+// BulkAssignRequest is the request body for bulk assigning cases to an officer.
+type BulkAssignRequest struct {
+	CaseIDs    []uuid.UUID `json:"caseIds"`
+	AssignedTo string      `json:"assignedTo"`
+}
+
+// BulkActionRequest is the request body for bulk recording actions on cases.
+type BulkActionRequest struct {
+	CaseIDs    []uuid.UUID    `json:"caseIds"`
+	ActionType ActionType     `json:"actionType"`
+	Outcome    *ActionOutcome `json:"outcome"`
+	Notes      *string        `json:"notes"`
+}
+
+// BulkPriorityRequest is the request body for bulk changing case priority.
+type BulkPriorityRequest struct {
+	CaseIDs  []uuid.UUID  `json:"caseIds"`
+	Priority CasePriority `json:"priority"`
+}
+
+// BulkResult is the result of a bulk operation.
+type BulkResult struct {
+	Processed int `json:"processed"`
+	Failed    int `json:"failed"`
+}
+
+// ---------- Write-Off DTOs ----------
+
+// WriteOffRequest is the request body for requesting a write-off.
+type WriteOffRequest struct {
+	Reason string `json:"reason"`
+}
+
+// ---------- Restructure DTOs ----------
+
+// RestructureRequest is the request body for requesting a loan restructure.
+type RestructureRequest struct {
+	NewTerm        int             `json:"newTerm"`
+	NewInstallment decimal.Decimal `json:"newInstallment"`
+	Reason         string          `json:"reason"`
+}
+
+// ---------- Collection Officer ----------
+
+// CollectionOfficer represents a collection officer entity.
+type CollectionOfficer struct {
+	ID        uuid.UUID `json:"id"`
+	TenantID  string    `json:"tenantId"`
+	Username  string    `json:"username"`
+	MaxCases  int       `json:"maxCases"`
+	IsActive  bool      `json:"isActive"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// OfficerResponse is the JSON response for a collection officer.
+type OfficerResponse struct {
+	ID        uuid.UUID `json:"id"`
+	TenantID  string    `json:"tenantId"`
+	Username  string    `json:"username"`
+	MaxCases  int       `json:"maxCases"`
+	IsActive  bool      `json:"isActive"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// CreateOfficerRequest is the request body for creating a collection officer.
+type CreateOfficerRequest struct {
+	Username string `json:"username"`
+	MaxCases int    `json:"maxCases"`
+	IsActive *bool  `json:"isActive"`
+}
+
+// UpdateOfficerRequest is the request body for updating a collection officer.
+type UpdateOfficerRequest struct {
+	MaxCases *int  `json:"maxCases"`
+	IsActive *bool `json:"isActive"`
+}
+
+// OfficerWorkload represents the workload summary for an officer.
+type OfficerWorkload struct {
+	Username         string `json:"username"`
+	TotalCases       int64  `json:"totalCases"`
+	WatchCases       int64  `json:"watchCases"`
+	SubstandardCases int64  `json:"substandardCases"`
+	DoubtfulCases    int64  `json:"doubtfulCases"`
+	LossCases        int64  `json:"lossCases"`
+}
+
+// ---------- Phase 4: Analytics ----------
+
+// DashboardAnalytics is the response for the analytics dashboard endpoint.
+type DashboardAnalytics struct {
+	RecoveryRate      float64         `json:"recoveryRate"`
+	TotalRecovered    decimal.Decimal `json:"totalRecovered"`
+	TotalOutstanding  decimal.Decimal `json:"totalOutstanding"`
+	AgeingByStage     []StageAgeing   `json:"ageingByStage"`
+	NewCases          int64           `json:"newCases"`
+	ClosedCases       int64           `json:"closedCases"`
+	AvgDPD            float64         `json:"avgDPD"`
+	PtpFulfilmentRate float64         `json:"ptpFulfilmentRate"`
+}
+
+// StageAgeing represents count and amount for a collection stage.
+type StageAgeing struct {
+	Stage  string          `json:"stage"`
+	Count  int64           `json:"count"`
+	Amount decimal.Decimal `json:"amount"`
+}
+
+// OfficerPerformance represents performance metrics for a single collections officer.
+type OfficerPerformance struct {
+	Username          string  `json:"username"`
+	ActiveCases       int64   `json:"activeCases"`
+	ActionsCount      int64   `json:"actionsCount"`
+	PtpsCreated       int64   `json:"ptpsCreated"`
+	PtpsFulfilled     int64   `json:"ptpsFulfilled"`
+	CasesClosed       int64   `json:"casesClosed"`
+	AvgResolutionDays float64 `json:"avgResolutionDays"`
+}
+
+// AgeingBucket represents a DPD-based ageing bucket.
+type AgeingBucket struct {
+	Bucket      string          `json:"bucket"`
+	Count       int64           `json:"count"`
+	Amount      decimal.Decimal `json:"amount"`
+	ProductType *string         `json:"productType"`
+}
+
+// ToOfficerResponse converts a CollectionOfficer entity to its response DTO.
+func ToOfficerResponse(o *CollectionOfficer) OfficerResponse {
+	return OfficerResponse{
+		ID:        o.ID,
+		TenantID:  o.TenantID,
+		Username:  o.Username,
+		MaxCases:  o.MaxCases,
+		IsActive:  o.IsActive,
+		CreatedAt: o.CreatedAt,
+		UpdatedAt: o.UpdatedAt,
+	}
 }
 
 // ToStrategyResponse converts a CollectionStrategy entity to its response DTO.

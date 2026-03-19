@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -47,6 +48,25 @@ func (h *Handler) Routes(r chi.Router) {
 		r.Post("/cases/{id}/close", h.CloseCase)
 		r.Post("/cases/{id}/actions", h.AddAction)
 		r.Post("/cases/{id}/ptps", h.AddPtp)
+		r.Post("/cases/{id}/request-writeoff", h.RequestWriteOff)
+		r.Post("/cases/{id}/approve-writeoff", h.ApproveWriteOff)
+		r.Post("/cases/{id}/request-restructure", h.RequestRestructure)
+
+		// Bulk operations
+		r.Post("/cases/bulk-assign", h.BulkAssign)
+		r.Post("/cases/bulk-action", h.BulkAction)
+		r.Post("/cases/bulk-priority", h.BulkPriority)
+
+		// Officers
+		r.Get("/officers", h.ListOfficers)
+		r.Post("/officers", h.CreateOfficer)
+		r.Put("/officers/{id}", h.UpdateOfficer)
+		r.Get("/officers/workload", h.GetWorkload)
+
+		// Analytics
+		r.Get("/analytics/dashboard", h.GetDashboardAnalytics)
+		r.Get("/analytics/officer-performance", h.GetOfficerPerformance)
+		r.Get("/analytics/ageing", h.GetAgeingReport)
 
 		// Strategies
 		r.Get("/strategies", h.ListStrategies)
@@ -272,6 +292,203 @@ func (h *Handler) ListPtps(w http.ResponseWriter, r *http.Request) {
 }
 
 // -----------------------------------------------------------------------
+// Bulk Operations
+// -----------------------------------------------------------------------
+
+// BulkAssign assigns multiple cases to a single officer.
+func (h *Handler) BulkAssign(w http.ResponseWriter, r *http.Request) {
+	var req model.BulkAssignRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+	tenantID := tenantID(r)
+	resp, err := h.svc.BulkAssign(r.Context(), req, tenantID)
+	if err != nil {
+		middleware.HandleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// BulkAction records an action on multiple cases.
+func (h *Handler) BulkAction(w http.ResponseWriter, r *http.Request) {
+	var req model.BulkActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+	tenantID := tenantID(r)
+	resp, err := h.svc.BulkAction(r.Context(), req, tenantID)
+	if err != nil {
+		middleware.HandleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// BulkPriority changes priority for multiple cases.
+func (h *Handler) BulkPriority(w http.ResponseWriter, r *http.Request) {
+	var req model.BulkPriorityRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+	tenantID := tenantID(r)
+	resp, err := h.svc.BulkPriority(r.Context(), req, tenantID)
+	if err != nil {
+		middleware.HandleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// -----------------------------------------------------------------------
+// Write-Off Workflow
+// -----------------------------------------------------------------------
+
+// RequestWriteOff marks a case for write-off review.
+func (h *Handler) RequestWriteOff(w http.ResponseWriter, r *http.Request) {
+	id, err := uuidParam(r, "id")
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid case ID", r.URL.Path)
+		return
+	}
+	var req model.WriteOffRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+	if req.Reason == "" {
+		httputil.WriteBadRequest(w, "reason is required", r.URL.Path)
+		return
+	}
+	tenantID := tenantID(r)
+	requestedBy := auth.UserIDFromContext(r.Context())
+	if requestedBy == "" {
+		requestedBy = "unknown"
+	}
+	resp, err := h.svc.RequestWriteOff(r.Context(), id, req.Reason, requestedBy, tenantID)
+	if err != nil {
+		middleware.HandleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// ApproveWriteOff approves a write-off request.
+func (h *Handler) ApproveWriteOff(w http.ResponseWriter, r *http.Request) {
+	id, err := uuidParam(r, "id")
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid case ID", r.URL.Path)
+		return
+	}
+	tenantID := tenantID(r)
+	approvedBy := auth.UserIDFromContext(r.Context())
+	if approvedBy == "" {
+		approvedBy = "unknown"
+	}
+	resp, err := h.svc.ApproveWriteOff(r.Context(), id, approvedBy, tenantID)
+	if err != nil {
+		middleware.HandleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// -----------------------------------------------------------------------
+// Restructuring
+// -----------------------------------------------------------------------
+
+// RequestRestructure records a restructure request for a case.
+func (h *Handler) RequestRestructure(w http.ResponseWriter, r *http.Request) {
+	id, err := uuidParam(r, "id")
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid case ID", r.URL.Path)
+		return
+	}
+	var req model.RestructureRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+	if req.Reason == "" {
+		httputil.WriteBadRequest(w, "reason is required", r.URL.Path)
+		return
+	}
+	tenantID := tenantID(r)
+	resp, err := h.svc.RequestRestructure(r.Context(), id, req, tenantID)
+	if err != nil {
+		middleware.HandleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusCreated, resp)
+}
+
+// -----------------------------------------------------------------------
+// Officer Management
+// -----------------------------------------------------------------------
+
+// ListOfficers returns all collection officers for the tenant.
+func (h *Handler) ListOfficers(w http.ResponseWriter, r *http.Request) {
+	tenantID := tenantID(r)
+	resp, err := h.svc.ListOfficers(r.Context(), tenantID)
+	if err != nil {
+		middleware.HandleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// CreateOfficer creates a new collection officer.
+func (h *Handler) CreateOfficer(w http.ResponseWriter, r *http.Request) {
+	var req model.CreateOfficerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+	tenantID := tenantID(r)
+	resp, err := h.svc.CreateOfficer(r.Context(), req, tenantID)
+	if err != nil {
+		middleware.HandleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusCreated, resp)
+}
+
+// UpdateOfficer updates an existing collection officer.
+func (h *Handler) UpdateOfficer(w http.ResponseWriter, r *http.Request) {
+	id, err := uuidParam(r, "id")
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid officer ID", r.URL.Path)
+		return
+	}
+	var req model.UpdateOfficerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+	tenantID := tenantID(r)
+	resp, err := h.svc.UpdateOfficer(r.Context(), id, req, tenantID)
+	if err != nil {
+		middleware.HandleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// GetWorkload returns workload stats for all active officers.
+func (h *Handler) GetWorkload(w http.ResponseWriter, r *http.Request) {
+	tenantID := tenantID(r)
+	resp, err := h.svc.GetWorkload(r.Context(), tenantID)
+	if err != nil {
+		middleware.HandleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// -----------------------------------------------------------------------
 // Helpers
 // -----------------------------------------------------------------------
 
@@ -387,4 +604,62 @@ func (h *Handler) GetOverdueFollowUps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// -----------------------------------------------------------------------
+// Phase 4: Analytics handlers
+// -----------------------------------------------------------------------
+
+// GetDashboardAnalytics returns dashboard analytics for the tenant.
+func (h *Handler) GetDashboardAnalytics(w http.ResponseWriter, r *http.Request) {
+	tenantID := tenantID(r)
+	from, to := parseDateRange(r)
+	resp, err := h.svc.GetDashboardAnalytics(r.Context(), tenantID, from, to)
+	if err != nil {
+		middleware.HandleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// GetOfficerPerformance returns officer performance metrics.
+func (h *Handler) GetOfficerPerformance(w http.ResponseWriter, r *http.Request) {
+	tenantID := tenantID(r)
+	from, to := parseDateRange(r)
+	resp, err := h.svc.GetOfficerPerformance(r.Context(), tenantID, from, to)
+	if err != nil {
+		middleware.HandleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// GetAgeingReport returns the ageing report grouped by DPD buckets.
+func (h *Handler) GetAgeingReport(w http.ResponseWriter, r *http.Request) {
+	tenantID := tenantID(r)
+	resp, err := h.svc.GetAgeingReport(r.Context(), tenantID)
+	if err != nil {
+		middleware.HandleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// parseDateRange extracts from/to query params (YYYY-MM-DD), defaulting to last 30 days.
+func parseDateRange(r *http.Request) (from, to time.Time) {
+	now := time.Now().UTC()
+	to = now.Truncate(24*time.Hour).Add(24 * time.Hour) // end of today
+	from = to.AddDate(0, 0, -30)
+
+	if f := r.URL.Query().Get("from"); f != "" {
+		if t, err := time.Parse("2006-01-02", f); err == nil {
+			from = t
+		}
+	}
+	if t := r.URL.Query().Get("to"); t != "" {
+		if parsed, err := time.Parse("2006-01-02", t); err == nil {
+			to = parsed.Add(24 * time.Hour) // inclusive of the end date
+		}
+	}
+	return
 }

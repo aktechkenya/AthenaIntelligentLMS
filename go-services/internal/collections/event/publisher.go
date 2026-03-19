@@ -8,6 +8,7 @@ import (
 	"github.com/athena-lms/go-services/internal/collections/model"
 	commonevent "github.com/athena-lms/go-services/internal/common/event"
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 )
 
 const serviceName = "collections-service"
@@ -71,6 +72,51 @@ func (p *Publisher) PublishCaseClosed(ctx context.Context, caseID, loanID uuid.U
 		p.logger.Error("Failed to publish case closed event", zap.Error(err))
 	} else {
 		p.logger.Info("Published collection.case.closed", zap.String("caseId", caseID.String()), zap.String("loanId", loanID.String()))
+	}
+}
+
+// PublishWriteOffApproved publishes a collection.writeoff.approved event.
+func (p *Publisher) PublishWriteOffApproved(ctx context.Context, caseID, loanID uuid.UUID, amount decimal.Decimal, tenantID string) {
+	evt, err := commonevent.NewDomainEvent(
+		"collection.writeoff.approved", serviceName, tenantID, "",
+		map[string]string{
+			"caseId": caseID.String(),
+			"loanId": loanID.String(),
+			"amount": amount.String(),
+		},
+	)
+	if err != nil {
+		p.logger.Error("Failed to create writeoff approved event", zap.Error(err))
+		return
+	}
+	if err := p.pub.Publish(ctx, evt); err != nil {
+		p.logger.Error("Failed to publish writeoff approved event", zap.Error(err))
+	} else {
+		p.logger.Info("Published collection.writeoff.approved",
+			zap.String("caseId", caseID.String()),
+			zap.String("loanId", loanID.String()),
+			zap.String("amount", amount.String()),
+		)
+	}
+}
+
+// PublishRestructureRequested publishes a collection.restructure.requested event.
+func (p *Publisher) PublishRestructureRequested(ctx context.Context, caseID, loanID uuid.UUID, tenantID string) {
+	evt, err := commonevent.NewDomainEvent(
+		"collection.restructure.requested", serviceName, tenantID, "",
+		map[string]string{"caseId": caseID.String(), "loanId": loanID.String()},
+	)
+	if err != nil {
+		p.logger.Error("Failed to create restructure requested event", zap.Error(err))
+		return
+	}
+	if err := p.pub.Publish(ctx, evt); err != nil {
+		p.logger.Error("Failed to publish restructure requested event", zap.Error(err))
+	} else {
+		p.logger.Info("Published collection.restructure.requested",
+			zap.String("caseId", caseID.String()),
+			zap.String("loanId", loanID.String()),
+		)
 	}
 }
 

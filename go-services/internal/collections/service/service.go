@@ -22,6 +22,7 @@ type CollectionsService struct {
 	actionRepo   *repository.CollectionActionRepository
 	ptpRepo      *repository.PtpRepository
 	strategyRepo *repository.StrategyRepository
+	officerRepo  *repository.OfficerRepository
 	publisher    *event.Publisher
 	logger       *zap.Logger
 }
@@ -32,6 +33,7 @@ func NewCollectionsService(
 	actionRepo *repository.CollectionActionRepository,
 	ptpRepo *repository.PtpRepository,
 	strategyRepo *repository.StrategyRepository,
+	officerRepo *repository.OfficerRepository,
 	publisher *event.Publisher,
 	logger *zap.Logger,
 ) *CollectionsService {
@@ -40,6 +42,7 @@ func NewCollectionsService(
 		actionRepo:   actionRepo,
 		ptpRepo:      ptpRepo,
 		strategyRepo: strategyRepo,
+		officerRepo:  officerRepo,
 		publisher:    publisher,
 		logger:       logger,
 	}
@@ -82,6 +85,10 @@ func (s *CollectionsService) OpenOrUpdateCase(ctx context.Context, loanID uuid.U
 		saved, err := s.caseRepo.Save(ctx, newCase)
 		if err != nil {
 			return fmt.Errorf("save new case: %w", err)
+		}
+		// Auto-assign to officer with fewest open cases
+		if saved.AssignedTo == nil {
+			s.AutoAssign(ctx, saved.ID, tenantID)
 		}
 		s.publisher.PublishCaseCreated(ctx, saved.ID, loanID, tenantID)
 		s.logger.Info("Opened new collection case", zap.String("caseNumber", saved.CaseNumber), zap.String("loanId", loanID.String()))
@@ -863,4 +870,403 @@ func (s *CollectionsService) EscalateOverdueFollowUps(ctx context.Context) error
 		s.logger.Info("Escalated overdue follow-up cases", zap.Int("count", escalated))
 	}
 	return nil
+}
+
+// -----------------------------------------------------------------------
+// Bulk Operations
+// -----------------------------------------------------------------------
+
+// BulkAssign assigns multiple cases to a single officer.
+func (s *CollectionsService) BulkAssign(ctx context.Context, req model.BulkAssignRequest, tenantID string) (*model.BulkResult, error) {
+	if req.AssignedTo == "" {
+		return nil, errors.BadRequest("assignedTo is required")
+	}
+	if len(req.CaseIDs) == 0 {
+		return nil, errors.BadRequest("caseIds is required")
+	}
+
+	result := &model.BulkResult{}
+	for _, caseID := range req.CaseIDs {
+		c, err := s.caseRepo.FindByTenantIDAndID(ctx, tenantID, caseID)
+		if err != nil || c == nil {
+			result.Failed++
+			continue
+		}
+		c.AssignedTo = &req.AssignedTo
+		if _, err := s.caseRepo.Save(ctx, c); err != nil {
+			result.Failed++
+			continue
+		}
+		result.Processed++
+	}
+	return result, nil
+}
+
+// BulkAction records an action on multiple cases.
+func (s *CollectionsService) BulkAction(ctx context.Context, req model.BulkActionRequest, tenantID string) (*model.BulkResult, error) {
+	if req.ActionType == "" {
+		return nil, errors.BadRequest("actionType is required")
+	}
+	if len(req.CaseIDs) == 0 {
+		return nil, errors.BadRequest("caseIds is required")
+	}
+
+	result := &model.BulkResult{}
+	for _, caseID := range req.CaseIDs {
+		actionReq := model.AddActionRequest{
+			ActionType: req.ActionType,
+			Outcome:    req.Outcome,
+			Notes:      req.Notes,
+		}
+		if _, err := s.AddAction(ctx, caseID, actionReq, tenantID); err != nil {
+			result.Failed++
+			s.logger.Warn("Bulk action failed for case",
+				zap.String("caseId", caseID.String()),
+				zap.Error(err),
+			)
+			continue
+		}
+		result.Processed++
+	}
+	return result, nil
+}
+
+// BulkPriority changes priority for multiple cases.
+func (s *CollectionsService) BulkPriority(ctx context.Context, req model.BulkPriorityRequest, tenantID string) (*model.BulkResult, error) {
+	if req.Priority == "" {
+		return nil, errors.BadRequest("priority is required")
+	}
+	if len(req.CaseIDs) == 0 {
+		return nil, errors.BadRequest("caseIds is required")
+	}
+
+	result := &model.BulkResult{}
+	for _, caseID := range req.CaseIDs {
+		c, err := s.caseRepo.FindByTenantIDAndID(ctx, tenantID, caseID)
+		if err != nil || c == nil {
+			result.Failed++
+			continue
+		}
+		c.Priority = req.Priority
+		if _, err := s.caseRepo.Save(ctx, c); err != nil {
+			result.Failed++
+			continue
+		}
+		result.Processed++
+	}
+	return result, nil
+}
+
+// -----------------------------------------------------------------------
+// Write-Off Workflow
+// -----------------------------------------------------------------------
+
+// RequestWriteOff marks a case as write-off requested.
+func (s *CollectionsService) RequestWriteOff(ctx context.Context, id uuid.UUID, reason, requestedBy, tenantID string) (*model.CollectionCaseResponse, error) {
+	c, err := s.caseRepo.FindByTenantIDAndID(ctx, tenantID, id)
+	if err != nil {
+		return nil, fmt.Errorf("find case: %w", err)
+	}
+	if c == nil {
+		return nil, errors.NotFoundResource("Collection case", id)
+	}
+	if c.Status == model.CaseStatusClosed || c.Status == model.CaseStatusWrittenOff {
+		return nil, errors.BadRequest("Cannot request write-off for a closed or already written-off case")
+	}
+
+	c.Status = model.CaseStatusWriteOffRequested
+	c.WriteOffReason = &reason
+	c.WriteOffRequestedBy = &requestedBy
+
+	saved, err := s.caseRepo.Save(ctx, c)
+	if err != nil {
+		return nil, fmt.Errorf("save case: %w", err)
+	}
+	resp := model.ToCaseResponse(saved)
+	return &resp, nil
+}
+
+// ApproveWriteOff approves a write-off request, sets status to WRITTEN_OFF and publishes event.
+func (s *CollectionsService) ApproveWriteOff(ctx context.Context, id uuid.UUID, approvedBy, tenantID string) (*model.CollectionCaseResponse, error) {
+	c, err := s.caseRepo.FindByTenantIDAndID(ctx, tenantID, id)
+	if err != nil {
+		return nil, fmt.Errorf("find case: %w", err)
+	}
+	if c == nil {
+		return nil, errors.NotFoundResource("Collection case", id)
+	}
+	if c.Status != model.CaseStatusWriteOffRequested {
+		return nil, errors.BadRequest("Case must be in WRITE_OFF_REQUESTED status to approve")
+	}
+
+	now := time.Now().UTC()
+	c.Status = model.CaseStatusWrittenOff
+	c.WriteOffApprovedBy = &approvedBy
+	c.ClosedAt = &now
+
+	saved, err := s.caseRepo.Save(ctx, c)
+	if err != nil {
+		return nil, fmt.Errorf("save case: %w", err)
+	}
+
+	s.publisher.PublishWriteOffApproved(ctx, saved.ID, saved.LoanID, saved.OutstandingAmount, tenantID)
+	resp := model.ToCaseResponse(saved)
+	return &resp, nil
+}
+
+// -----------------------------------------------------------------------
+// Restructuring Integration
+// -----------------------------------------------------------------------
+
+// RequestRestructure records a restructure offer action and publishes an event.
+func (s *CollectionsService) RequestRestructure(ctx context.Context, caseID uuid.UUID, req model.RestructureRequest, tenantID string) (*model.CollectionActionResponse, error) {
+	c, err := s.caseRepo.FindByTenantIDAndID(ctx, tenantID, caseID)
+	if err != nil {
+		return nil, fmt.Errorf("find case: %w", err)
+	}
+	if c == nil {
+		return nil, errors.NotFoundResource("Collection case", caseID)
+	}
+
+	notes := fmt.Sprintf("Restructure request: new term=%d months, new installment=%s, reason=%s",
+		req.NewTerm, req.NewInstallment.String(), req.Reason)
+
+	actionReq := model.AddActionRequest{
+		ActionType: model.ActionTypeRestructureOffer,
+		Notes:      &notes,
+	}
+	resp, err := s.AddAction(ctx, caseID, actionReq, tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	s.publisher.PublishRestructureRequested(ctx, caseID, c.LoanID, tenantID)
+	return resp, nil
+}
+
+// -----------------------------------------------------------------------
+// Officer Management
+// -----------------------------------------------------------------------
+
+// CreateOfficer creates a new collection officer.
+func (s *CollectionsService) CreateOfficer(ctx context.Context, req model.CreateOfficerRequest, tenantID string) (*model.OfficerResponse, error) {
+	if req.Username == "" {
+		return nil, errors.BadRequest("username is required")
+	}
+
+	existing, err := s.officerRepo.FindByTenantIDAndUsername(ctx, tenantID, req.Username)
+	if err != nil {
+		return nil, fmt.Errorf("check existing officer: %w", err)
+	}
+	if existing != nil {
+		return nil, errors.BadRequest("Officer with this username already exists")
+	}
+
+	isActive := true
+	if req.IsActive != nil {
+		isActive = *req.IsActive
+	}
+	maxCases := 50
+	if req.MaxCases > 0 {
+		maxCases = req.MaxCases
+	}
+
+	officer := &model.CollectionOfficer{
+		TenantID: tenantID,
+		Username: req.Username,
+		MaxCases: maxCases,
+		IsActive: isActive,
+	}
+
+	saved, err := s.officerRepo.Save(ctx, officer)
+	if err != nil {
+		return nil, fmt.Errorf("save officer: %w", err)
+	}
+	resp := model.ToOfficerResponse(saved)
+	return &resp, nil
+}
+
+// UpdateOfficer updates an existing collection officer.
+func (s *CollectionsService) UpdateOfficer(ctx context.Context, id uuid.UUID, req model.UpdateOfficerRequest, tenantID string) (*model.OfficerResponse, error) {
+	officer, err := s.officerRepo.FindByTenantIDAndID(ctx, tenantID, id)
+	if err != nil {
+		return nil, fmt.Errorf("find officer: %w", err)
+	}
+	if officer == nil {
+		return nil, errors.NotFoundResource("Collection officer", id)
+	}
+
+	if req.MaxCases != nil {
+		officer.MaxCases = *req.MaxCases
+	}
+	if req.IsActive != nil {
+		officer.IsActive = *req.IsActive
+	}
+
+	saved, err := s.officerRepo.Save(ctx, officer)
+	if err != nil {
+		return nil, fmt.Errorf("update officer: %w", err)
+	}
+	resp := model.ToOfficerResponse(saved)
+	return &resp, nil
+}
+
+// ListOfficers returns all officers for a tenant.
+func (s *CollectionsService) ListOfficers(ctx context.Context, tenantID string) ([]model.OfficerResponse, error) {
+	officers, err := s.officerRepo.FindByTenantID(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("list officers: %w", err)
+	}
+	responses := make([]model.OfficerResponse, len(officers))
+	for i, o := range officers {
+		responses[i] = model.ToOfficerResponse(o)
+	}
+	return responses, nil
+}
+
+// GetWorkload returns workload stats for all active officers.
+func (s *CollectionsService) GetWorkload(ctx context.Context, tenantID string) ([]model.OfficerWorkload, error) {
+	return s.officerRepo.GetWorkload(ctx, tenantID)
+}
+
+// AutoAssign assigns a case to the active officer with the fewest open cases.
+func (s *CollectionsService) AutoAssign(ctx context.Context, caseID uuid.UUID, tenantID string) {
+	officers, err := s.officerRepo.FindActiveByTenantID(ctx, tenantID)
+	if err != nil || len(officers) == 0 {
+		return
+	}
+
+	var bestOfficer *model.CollectionOfficer
+	var minCases int64 = -1
+
+	for _, officer := range officers {
+		count, err := s.caseRepo.CountOpenByAssignedTo(ctx, tenantID, officer.Username)
+		if err != nil {
+			continue
+		}
+		if count >= int64(officer.MaxCases) {
+			continue // Officer is at capacity
+		}
+		if minCases < 0 || count < minCases {
+			minCases = count
+			bestOfficer = officer
+		}
+	}
+
+	if bestOfficer == nil {
+		s.logger.Warn("No available officer for auto-assignment", zap.String("caseId", caseID.String()))
+		return
+	}
+
+	c, err := s.caseRepo.FindByTenantIDAndID(ctx, tenantID, caseID)
+	if err != nil || c == nil {
+		return
+	}
+	c.AssignedTo = &bestOfficer.Username
+	if _, err := s.caseRepo.Save(ctx, c); err != nil {
+		s.logger.Error("Auto-assign save failed",
+			zap.String("caseId", caseID.String()),
+			zap.String("officer", bestOfficer.Username),
+			zap.Error(err),
+		)
+		return
+	}
+	s.logger.Info("Auto-assigned case to officer",
+		zap.String("caseId", caseID.String()),
+		zap.String("officer", bestOfficer.Username),
+	)
+}
+
+// -----------------------------------------------------------------------
+// Phase 4: Analytics
+// -----------------------------------------------------------------------
+
+// GetDashboardAnalytics returns aggregated dashboard analytics for the given date range.
+func (s *CollectionsService) GetDashboardAnalytics(ctx context.Context, tenantID string, from, to time.Time) (*model.DashboardAnalytics, error) {
+	// Total outstanding for open cases
+	totalOutstanding, err := s.caseRepo.SumTotalOutstanding(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("total outstanding: %w", err)
+	}
+
+	// Ageing by stage
+	stageAgeing, err := s.caseRepo.GetStageAgeing(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("stage ageing: %w", err)
+	}
+	if stageAgeing == nil {
+		stageAgeing = []model.StageAgeing{}
+	}
+
+	// New and closed cases in period
+	newCases, err := s.caseRepo.CountNewCases(ctx, tenantID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("new cases: %w", err)
+	}
+	closedCases, err := s.caseRepo.CountClosedCases(ctx, tenantID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("closed cases: %w", err)
+	}
+
+	// Avg DPD
+	avgDPD, err := s.caseRepo.AvgDPDOpenCases(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("avg dpd: %w", err)
+	}
+
+	// Recovery stats
+	closedAmount, totalAmount, err := s.caseRepo.GetRecoveryStats(ctx, tenantID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("recovery stats: %w", err)
+	}
+	var recoveryRate float64
+	if !totalAmount.IsZero() {
+		rate, _ := closedAmount.Div(totalAmount).Float64()
+		recoveryRate = rate * 100
+	}
+
+	// PTP fulfilment
+	fulfilled, totalPtps, err := s.ptpRepo.GetFulfilmentStats(ctx, tenantID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("ptp fulfilment: %w", err)
+	}
+	var ptpFulfilmentRate float64
+	if totalPtps > 0 {
+		ptpFulfilmentRate = float64(fulfilled) / float64(totalPtps) * 100
+	}
+
+	return &model.DashboardAnalytics{
+		RecoveryRate:      recoveryRate,
+		TotalRecovered:    closedAmount,
+		TotalOutstanding:  totalOutstanding,
+		AgeingByStage:     stageAgeing,
+		NewCases:          newCases,
+		ClosedCases:       closedCases,
+		AvgDPD:            avgDPD,
+		PtpFulfilmentRate: ptpFulfilmentRate,
+	}, nil
+}
+
+// GetOfficerPerformance returns performance metrics for each officer in the date range.
+func (s *CollectionsService) GetOfficerPerformance(ctx context.Context, tenantID string, from, to time.Time) ([]model.OfficerPerformance, error) {
+	results, err := s.caseRepo.GetOfficerPerformance(ctx, tenantID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("officer performance: %w", err)
+	}
+	if results == nil {
+		results = []model.OfficerPerformance{}
+	}
+	return results, nil
+}
+
+// GetAgeingReport returns ageing buckets for the tenant.
+func (s *CollectionsService) GetAgeingReport(ctx context.Context, tenantID string) ([]model.AgeingBucket, error) {
+	results, err := s.caseRepo.GetAgeingReport(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("ageing report: %w", err)
+	}
+	if results == nil {
+		results = []model.AgeingBucket{}
+	}
+	return results, nil
 }

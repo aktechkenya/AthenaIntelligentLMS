@@ -86,6 +86,7 @@ func main() {
 	actionRepo := repository.NewCollectionActionRepository(pool)
 	ptpRepo := repository.NewPtpRepository(pool)
 	strategyRepo := repository.NewStrategyRepository(pool)
+	officerRepo := repository.NewOfficerRepository(pool)
 
 	// Event publisher
 	pub, err := event.NewPublisher(rmqConn, logger)
@@ -96,7 +97,7 @@ func main() {
 	collPub := collectionsEvent.NewPublisher(pub, logger)
 
 	// Service
-	svc := service.NewCollectionsService(caseRepo, actionRepo, ptpRepo, strategyRepo, collPub, logger)
+	svc := service.NewCollectionsService(caseRepo, actionRepo, ptpRepo, strategyRepo, officerRepo, collPub, logger)
 
 	// PTP scheduler + follow-up SLA checker
 	ptpScheduler := scheduler.NewPtpCheckScheduler(ptpRepo, svc, logger)
