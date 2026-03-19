@@ -10,6 +10,7 @@ import (
 	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
 
+	"github.com/athena-lms/go-services/internal/accounting/audit"
 	"github.com/athena-lms/go-services/internal/accounting/event"
 	"github.com/athena-lms/go-services/internal/accounting/model"
 	"github.com/athena-lms/go-services/internal/accounting/repository"
@@ -20,12 +21,13 @@ import (
 type AccountingService struct {
 	repo      *repository.Repository
 	publisher *event.Publisher
+	audit     *audit.Logger
 	logger    *zap.Logger
 }
 
 // New creates a new AccountingService.
-func New(repo *repository.Repository, publisher *event.Publisher, logger *zap.Logger) *AccountingService {
-	return &AccountingService{repo: repo, publisher: publisher, logger: logger}
+func New(repo *repository.Repository, publisher *event.Publisher, auditLogger *audit.Logger, logger *zap.Logger) *AccountingService {
+	return &AccountingService{repo: repo, publisher: publisher, audit: auditLogger, logger: logger}
 }
 
 // --- Chart of Accounts ---
@@ -55,39 +57,58 @@ func (s *AccountingService) CreateAccount(ctx context.Context, req model.CreateA
 		return nil, fmt.Errorf("create account: %w", err)
 	}
 
+	s.audit.Log(ctx, "CREATE_ACCOUNT", "ChartOfAccount", account.ID.String(), map[string]any{
+		"code": account.Code, "name": account.Name,
+	})
+
 	resp := model.ToAccountResponse(account)
 	return &resp, nil
 }
 
-// ListAccounts lists GL accounts for a tenant (with optional type filter), falling back to system accounts.
+// ListAccounts lists GL accounts for a tenant (with optional type filter), merging system accounts.
 func (s *AccountingService) ListAccounts(ctx context.Context, tenantID string, accountType *model.AccountType) ([]model.AccountResponse, error) {
-	var accounts []model.ChartOfAccount
+	var tenantAccounts, systemAccounts []model.ChartOfAccount
 	var err error
 
 	if accountType != nil {
-		accounts, err = s.repo.ListActiveAccountsByType(ctx, tenantID, *accountType)
+		tenantAccounts, err = s.repo.ListActiveAccountsByType(ctx, tenantID, *accountType)
 	} else {
-		accounts, err = s.repo.ListActiveAccounts(ctx, tenantID)
+		tenantAccounts, err = s.repo.ListActiveAccounts(ctx, tenantID)
 	}
 	if err != nil {
 		return nil, err
 	}
 
-	// Fall back to system accounts if tenant has none
-	if len(accounts) == 0 {
+	// Also fetch system accounts and merge (fill gaps not covered by tenant)
+	if tenantID != "system" {
 		if accountType != nil {
-			accounts, err = s.repo.ListActiveAccountsByType(ctx, "system", *accountType)
+			systemAccounts, err = s.repo.ListActiveAccountsByType(ctx, "system", *accountType)
 		} else {
-			accounts, err = s.repo.ListActiveAccounts(ctx, "system")
+			systemAccounts, err = s.repo.ListActiveAccounts(ctx, "system")
 		}
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	result := make([]model.AccountResponse, 0, len(accounts))
-	for i := range accounts {
-		result = append(result, model.ToAccountResponse(&accounts[i]))
+	// Build set of tenant account codes to avoid duplicates
+	tenantCodes := make(map[string]bool, len(tenantAccounts))
+	for _, a := range tenantAccounts {
+		tenantCodes[a.Code] = true
+	}
+
+	// Merge: tenant accounts first, then system accounts for codes not in tenant
+	merged := make([]model.ChartOfAccount, 0, len(tenantAccounts)+len(systemAccounts))
+	merged = append(merged, tenantAccounts...)
+	for _, sa := range systemAccounts {
+		if !tenantCodes[sa.Code] {
+			merged = append(merged, sa)
+		}
+	}
+
+	result := make([]model.AccountResponse, 0, len(merged))
+	for i := range merged {
+		result = append(result, model.ToAccountResponse(&merged[i]))
 	}
 	return result, nil
 }
@@ -142,15 +163,22 @@ func (s *AccountingService) PostEntry(ctx context.Context, req model.PostJournal
 		entryDate = *req.EntryDate
 	}
 
+	// Check fiscal period is open
+	if err := s.checkPeriodOpen(ctx, tenantID, entryDate); err != nil {
+		return nil, err
+	}
+
 	entry := &model.JournalEntry{
-		TenantID:    tenantID,
-		Reference:   req.Reference,
-		Description: req.Description,
-		EntryDate:   entryDate,
-		Status:      model.EntryStatusPosted,
-		TotalDebit:  totalDebit,
-		TotalCredit: totalCredit,
-		PostedBy:    &userID,
+		TenantID:          tenantID,
+		Reference:         req.Reference,
+		Description:       req.Description,
+		EntryDate:         entryDate,
+		Status:            model.EntryStatusDraft,
+		TotalDebit:        totalDebit,
+		TotalCredit:       totalCredit,
+		PostedBy:          &userID,
+		CreatedBy:         &userID,
+		IsSystemGenerated: false,
 	}
 
 	for i, lr := range req.Lines {
@@ -172,7 +200,9 @@ func (s *AccountingService) PostEntry(ctx context.Context, req model.PostJournal
 		return nil, fmt.Errorf("post journal entry: %w", err)
 	}
 
-	s.publisher.PublishJournalPosted(ctx, entry)
+	s.audit.Log(ctx, "CREATE_ENTRY", "JournalEntry", entry.ID.String(), map[string]any{
+		"reference": entry.Reference, "status": string(entry.Status),
+	})
 
 	resp := model.ToJournalEntryResponse(entry)
 	return &resp, nil
@@ -385,16 +415,18 @@ func (s *AccountingService) PostRepayment(ctx context.Context, tenantID, payment
 	postedBy := "system"
 
 	entry := &model.JournalEntry{
-		TenantID:    tenantID,
-		Reference:   "RPMT-" + paymentID,
-		Description: &description,
-		EntryDate:   time.Now(),
-		Status:      model.EntryStatusPosted,
-		SourceEvent: &sourceEvent,
-		SourceID:    &paymentID,
-		TotalDebit:  amount,
-		TotalCredit: amount,
-		PostedBy:    &postedBy,
+		TenantID:          tenantID,
+		Reference:         "RPMT-" + paymentID,
+		Description:       &description,
+		EntryDate:         time.Now(),
+		Status:            model.EntryStatusPosted,
+		SourceEvent:       &sourceEvent,
+		SourceID:          &paymentID,
+		TotalDebit:        amount,
+		TotalCredit:       amount,
+		PostedBy:          &postedBy,
+		CreatedBy:         &postedBy,
+		IsSystemGenerated: true,
 	}
 
 	lineNo := 1
@@ -626,6 +658,359 @@ func (s *AccountingService) PostFloatRepaid(ctx context.Context, tenantID, sourc
 	return nil
 }
 
+// --- Entry Workflow ---
+
+// SubmitForApproval transitions a DRAFT entry to PENDING_APPROVAL.
+func (s *AccountingService) SubmitForApproval(ctx context.Context, id uuid.UUID, tenantID string) (*model.JournalEntryResponse, error) {
+	entry, err := s.repo.FindEntryByIDAndTenant(ctx, id, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if entry == nil {
+		return nil, errors.NotFoundResource("JournalEntry", id)
+	}
+	if entry.Status != model.EntryStatusDraft {
+		return nil, errors.NewBusinessError("Only DRAFT entries can be submitted for approval")
+	}
+
+	// Check fiscal period
+	if err := s.checkPeriodOpen(ctx, tenantID, entry.EntryDate); err != nil {
+		return nil, err
+	}
+
+	entry.Status = model.EntryStatusPendingApproval
+	if err := s.repo.UpdateEntryStatus(ctx, entry); err != nil {
+		return nil, fmt.Errorf("submit for approval: %w", err)
+	}
+
+	s.audit.Log(ctx, "SUBMIT_FOR_APPROVAL", "JournalEntry", id.String(), map[string]any{
+		"reference": entry.Reference,
+	})
+
+	resp := model.ToJournalEntryResponse(entry)
+	return &resp, nil
+}
+
+// ApproveEntry approves a PENDING_APPROVAL entry and posts it.
+func (s *AccountingService) ApproveEntry(ctx context.Context, id uuid.UUID, tenantID, approverID string) (*model.JournalEntryResponse, error) {
+	entry, err := s.repo.FindEntryByIDAndTenant(ctx, id, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if entry == nil {
+		return nil, errors.NotFoundResource("JournalEntry", id)
+	}
+	if entry.Status != model.EntryStatusPendingApproval {
+		return nil, errors.NewBusinessError("Only PENDING_APPROVAL entries can be approved")
+	}
+
+	// Segregation of duties: approver must differ from creator
+	if entry.CreatedBy != nil && *entry.CreatedBy == approverID {
+		return nil, errors.Forbidden("Cannot approve your own journal entry (segregation of duties)")
+	}
+
+	// Check fiscal period
+	if err := s.checkPeriodOpen(ctx, tenantID, entry.EntryDate); err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	entry.Status = model.EntryStatusPosted
+	entry.ApprovedBy = &approverID
+	entry.ApprovedAt = &now
+	entry.PostedBy = &approverID
+
+	if err := s.repo.UpdateEntryStatus(ctx, entry); err != nil {
+		return nil, fmt.Errorf("approve entry: %w", err)
+	}
+
+	// Now apply balances
+	if err := s.repo.ApplyEntryToBalances(ctx, entry); err != nil {
+		return nil, fmt.Errorf("apply balances: %w", err)
+	}
+
+	s.publisher.PublishJournalPosted(ctx, entry)
+	s.audit.Log(ctx, "APPROVE_ENTRY", "JournalEntry", id.String(), map[string]any{
+		"reference": entry.Reference, "approvedBy": approverID,
+	})
+
+	resp := model.ToJournalEntryResponse(entry)
+	return &resp, nil
+}
+
+// RejectEntry rejects a PENDING_APPROVAL entry.
+func (s *AccountingService) RejectEntry(ctx context.Context, id uuid.UUID, tenantID, reason string) (*model.JournalEntryResponse, error) {
+	entry, err := s.repo.FindEntryByIDAndTenant(ctx, id, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if entry == nil {
+		return nil, errors.NotFoundResource("JournalEntry", id)
+	}
+	if entry.Status != model.EntryStatusPendingApproval {
+		return nil, errors.NewBusinessError("Only PENDING_APPROVAL entries can be rejected")
+	}
+
+	entry.Status = model.EntryStatusRejected
+	entry.RejectionReason = &reason
+
+	if err := s.repo.UpdateEntryStatus(ctx, entry); err != nil {
+		return nil, fmt.Errorf("reject entry: %w", err)
+	}
+
+	s.audit.Log(ctx, "REJECT_ENTRY", "JournalEntry", id.String(), map[string]any{
+		"reference": entry.Reference, "reason": reason,
+	})
+
+	resp := model.ToJournalEntryResponse(entry)
+	return &resp, nil
+}
+
+// ReverseEntry reverses a POSTED entry by creating a mirror entry.
+func (s *AccountingService) ReverseEntry(ctx context.Context, id uuid.UUID, tenantID, userID, reason string) (*model.JournalEntryResponse, error) {
+	entry, err := s.repo.FindEntryByIDAndTenant(ctx, id, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if entry == nil {
+		return nil, errors.NotFoundResource("JournalEntry", id)
+	}
+	if entry.Status != model.EntryStatusPosted {
+		return nil, errors.NewBusinessError("Only POSTED entries can be reversed")
+	}
+
+	// Check fiscal period for reversal date
+	if err := s.checkPeriodOpen(ctx, tenantID, time.Now()); err != nil {
+		return nil, err
+	}
+
+	// Mark original as REVERSED
+	now := time.Now()
+	entry.Status = model.EntryStatusReversed
+	entry.ReversedBy = &userID
+	entry.ReversedAt = &now
+	entry.ReversalReason = &reason
+	if err := s.repo.UpdateEntryStatus(ctx, entry); err != nil {
+		return nil, fmt.Errorf("mark entry reversed: %w", err)
+	}
+
+	// Create mirror entry with flipped debits/credits
+	desc := fmt.Sprintf("Reversal of %s: %s", entry.Reference, reason)
+	reversal := &model.JournalEntry{
+		TenantID:          tenantID,
+		Reference:         "REV-" + entry.Reference,
+		Description:       &desc,
+		EntryDate:         now,
+		Status:            model.EntryStatusPosted,
+		TotalDebit:        entry.TotalCredit,
+		TotalCredit:       entry.TotalDebit,
+		PostedBy:          &userID,
+		CreatedBy:         &userID,
+		OriginalEntryID:   &entry.ID,
+		IsSystemGenerated: false,
+	}
+	for i, line := range entry.Lines {
+		reversal.Lines = append(reversal.Lines, model.JournalLine{
+			AccountID:    line.AccountID,
+			LineNo:       i + 1,
+			Description:  line.Description,
+			DebitAmount:  line.CreditAmount,
+			CreditAmount: line.DebitAmount,
+			Currency:     line.Currency,
+		})
+	}
+
+	if err := s.repo.CreateJournalEntry(ctx, reversal); err != nil {
+		return nil, fmt.Errorf("create reversal entry: %w", err)
+	}
+
+	s.publisher.PublishJournalPosted(ctx, reversal)
+	s.audit.Log(ctx, "REVERSE_ENTRY", "JournalEntry", id.String(), map[string]any{
+		"reference": entry.Reference, "reversalId": reversal.ID.String(), "reason": reason,
+	})
+
+	resp := model.ToJournalEntryResponse(reversal)
+	return &resp, nil
+}
+
+// --- Fiscal Periods ---
+
+// ListPeriods returns all fiscal periods for a tenant.
+func (s *AccountingService) ListPeriods(ctx context.Context, tenantID string) ([]model.FiscalPeriod, error) {
+	return s.repo.ListPeriods(ctx, tenantID)
+}
+
+// ClosePeriod closes a fiscal period.
+func (s *AccountingService) ClosePeriod(ctx context.Context, tenantID string, year, month int, userID string) (*model.FiscalPeriod, error) {
+	existing, err := s.repo.FindPeriod(ctx, tenantID, year, month)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	if existing != nil {
+		if existing.Status == model.PeriodStatusClosed {
+			return nil, errors.NewBusinessError(fmt.Sprintf("Period %d/%02d is already closed", year, month))
+		}
+		existing.Status = model.PeriodStatusClosed
+		existing.ClosedBy = &userID
+		existing.ClosedAt = &now
+		if err := s.repo.UpsertPeriod(ctx, existing); err != nil {
+			return nil, err
+		}
+		s.audit.Log(ctx, "CLOSE_PERIOD", "FiscalPeriod", fmt.Sprintf("%d-%02d", year, month), map[string]any{
+			"closedBy": userID,
+		})
+		return existing, nil
+	}
+
+	period := &model.FiscalPeriod{
+		TenantID:    tenantID,
+		PeriodYear:  year,
+		PeriodMonth: month,
+		Status:      model.PeriodStatusClosed,
+		ClosedBy:    &userID,
+		ClosedAt:    &now,
+	}
+	if err := s.repo.UpsertPeriod(ctx, period); err != nil {
+		return nil, err
+	}
+	s.audit.Log(ctx, "CLOSE_PERIOD", "FiscalPeriod", fmt.Sprintf("%d-%02d", year, month), map[string]any{
+		"closedBy": userID,
+	})
+	return period, nil
+}
+
+// ReopenPeriod reopens a closed fiscal period.
+func (s *AccountingService) ReopenPeriod(ctx context.Context, tenantID string, year, month int, userID, reason string) (*model.FiscalPeriod, error) {
+	existing, err := s.repo.FindPeriod(ctx, tenantID, year, month)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil || existing.Status == model.PeriodStatusOpen {
+		return nil, errors.NewBusinessError(fmt.Sprintf("Period %d/%02d is not closed", year, month))
+	}
+
+	existing.Status = model.PeriodStatusOpen
+	existing.ReopenedBy = &userID
+	existing.ReopenReason = &reason
+	if err := s.repo.UpsertPeriod(ctx, existing); err != nil {
+		return nil, err
+	}
+	s.audit.Log(ctx, "REOPEN_PERIOD", "FiscalPeriod", fmt.Sprintf("%d-%02d", year, month), map[string]any{
+		"reopenedBy": userID, "reason": reason,
+	})
+	return existing, nil
+}
+
+// --- Audit Log ---
+
+// ListAuditLogs returns audit logs with filters.
+func (s *AccountingService) ListAuditLogs(ctx context.Context, tenantID string, entityType, userID *string, from, to *time.Time, page, size int) ([]model.FinancialAuditLog, int64, error) {
+	return s.repo.ListAuditLogs(ctx, tenantID, entityType, userID, from, to, page, size)
+}
+
+// GetEntityAuditTrail returns the audit trail for a specific entity.
+func (s *AccountingService) GetEntityAuditTrail(ctx context.Context, tenantID, entityType, entityID string) ([]model.FinancialAuditLog, error) {
+	return s.repo.FindAuditLogsByEntity(ctx, tenantID, entityType, entityID)
+}
+
+// --- Cash Flow ---
+
+// GetCashFlow generates a cash flow statement for a period.
+func (s *AccountingService) GetCashFlow(ctx context.Context, tenantID string, year, month int) (*model.CashFlowResponse, error) {
+	cashAccount, err := s.repo.FindAccountByCodeAndTenantIn(ctx, "1000", []string{tenantID, "system"})
+	if err != nil {
+		return nil, err
+	}
+	if cashAccount == nil {
+		return nil, errors.NewBusinessError("Cash account (1000) not found")
+	}
+
+	from := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	to := from.AddDate(0, 1, -1)
+
+	lines, err := s.repo.GetCashFlowLines(ctx, cashAccount.ID, tenantID, from, to)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &model.CashFlowResponse{
+		PeriodYear:  year,
+		PeriodMonth: month,
+	}
+
+	for _, line := range lines {
+		item := model.CashFlowItem{
+			Description: line.CounterAccountName,
+			Amount:      line.NetAmount.Neg(), // Cash perspective is opposite of counter-account
+		}
+
+		switch {
+		case isOperatingAccount(line.CounterAccountCode):
+			resp.OperatingItems = append(resp.OperatingItems, item)
+			resp.TotalOperating = resp.TotalOperating.Add(item.Amount)
+		case isInvestingAccount(line.CounterAccountCode):
+			resp.InvestingItems = append(resp.InvestingItems, item)
+			resp.TotalInvesting = resp.TotalInvesting.Add(item.Amount)
+		default: // Financing
+			resp.FinancingItems = append(resp.FinancingItems, item)
+			resp.TotalFinancing = resp.TotalFinancing.Add(item.Amount)
+		}
+	}
+
+	resp.NetCashFlow = resp.TotalOperating.Add(resp.TotalInvesting).Add(resp.TotalFinancing)
+
+	// Get opening cash balance
+	openingNet, err := s.repo.GetNetBalance(ctx, cashAccount.ID, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	resp.ClosingCash = openingNet
+	resp.OpeningCash = openingNet.Sub(resp.NetCashFlow)
+
+	return resp, nil
+}
+
+// checkPeriodOpen verifies the fiscal period for the given date is not closed.
+func (s *AccountingService) checkPeriodOpen(ctx context.Context, tenantID string, entryDate time.Time) error {
+	year := entryDate.Year()
+	month := int(entryDate.Month())
+	period, err := s.repo.FindPeriod(ctx, tenantID, year, month)
+	if err != nil {
+		return err
+	}
+	if period != nil && period.Status == model.PeriodStatusClosed {
+		return errors.NewBusinessError(fmt.Sprintf("Fiscal period %d/%02d is closed", year, month))
+	}
+	return nil
+}
+
+// isOperatingAccount classifies an account code as operating activity.
+func isOperatingAccount(code string) bool {
+	// Loans (1100, 1200, 1300), income (4xxx), expenses (5xxx, 6xxx), customer deposits (2000)
+	if len(code) >= 1 {
+		switch code[0] {
+		case '4', '5', '6':
+			return true
+		}
+	}
+	switch code {
+	case "1100", "1200", "1250", "1300", "1400", "1410", "1150", "2000":
+		return true
+	}
+	return false
+}
+
+// isInvestingAccount classifies an account code as investing activity.
+func isInvestingAccount(code string) bool {
+	switch code {
+	case "1600", "1610":
+		return true
+	}
+	return false
+}
+
 // --- Private helpers ---
 
 func (s *AccountingService) resolveAccountID(ctx context.Context, tenantID, code string) (uuid.UUID, error) {
@@ -642,16 +1027,18 @@ func (s *AccountingService) resolveAccountID(ctx context.Context, tenantID, code
 func (s *AccountingService) buildSystemEntry(tenantID, reference, description, sourceEvent, sourceID string, drAccountID, crAccountID uuid.UUID, amount decimal.Decimal) *model.JournalEntry {
 	postedBy := "system"
 	entry := &model.JournalEntry{
-		TenantID:    tenantID,
-		Reference:   reference,
-		Description: &description,
-		EntryDate:   time.Now(),
-		Status:      model.EntryStatusPosted,
-		SourceEvent: &sourceEvent,
-		SourceID:    &sourceID,
-		TotalDebit:  amount,
-		TotalCredit: amount,
-		PostedBy:    &postedBy,
+		TenantID:          tenantID,
+		Reference:         reference,
+		Description:       &description,
+		EntryDate:         time.Now(),
+		Status:            model.EntryStatusPosted,
+		SourceEvent:       &sourceEvent,
+		SourceID:          &sourceID,
+		TotalDebit:        amount,
+		TotalCredit:       amount,
+		PostedBy:          &postedBy,
+		CreatedBy:         &postedBy,
+		IsSystemGenerated: true,
 		Lines: []model.JournalLine{
 			{
 				AccountID: drAccountID, LineNo: 1, DebitAmount: amount, CreditAmount: decimal.Zero, Currency: "KES",

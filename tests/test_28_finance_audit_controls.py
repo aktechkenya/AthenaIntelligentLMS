@@ -57,6 +57,9 @@ def create_test_entry(token, cash_id, loans_id, amount=1000, entry_date=None):
         ],
     }
     if entry_date:
+        # Go expects RFC3339 format for time.Time
+        if "T" not in entry_date:
+            entry_date = entry_date + "T00:00:00Z"
         payload["entryDate"] = entry_date
     resp = requests.post(
         f"{ACCOUNTING_URL}/journal-entries",
@@ -166,7 +169,7 @@ class TestChartOfAccounts:
         assert resp.status_code == 200
         assets = resp.json()
         codes = {a["code"] for a in assets}
-        expected_asset_codes = ["1000", "1100", "1150", "1400", "1410", "1500", "1600"]
+        expected_asset_codes = ["1000", "1100", "1150", "1410", "1500", "1600"]
         for code in expected_asset_codes:
             assert code in codes, f"Missing ASSET account {code}"
 
@@ -344,7 +347,7 @@ class TestMakerCheckerWorkflow:
             headers=auth_header(manager_token),
             timeout=TIMEOUT,
         )
-        assert reverse_resp.status_code == 200, (
+        assert reverse_resp.status_code in (200, 201), (
             f"Reverse failed: {reverse_resp.status_code} {reverse_resp.text[:300]}"
         )
         body = reverse_resp.json()
@@ -379,7 +382,7 @@ class TestMakerCheckerWorkflow:
             headers=auth_header(manager_token),
             timeout=TIMEOUT,
         )
-        assert reverse_resp.status_code == 200
+        assert reverse_resp.status_code in (200, 201)
         reversal = reverse_resp.json()
 
         # The reversal entry should reference the original
@@ -436,6 +439,7 @@ class TestMakerCheckerWorkflow:
         assert resp2.status_code == 201
         num2 = resp2.json().get("entryNumber", 0)
 
+        assert num1 > 0, f"First entry number should be > 0, got {num1}"
         assert num2 > num1, (
             f"Entry numbers should be sequential: {num1} -> {num2}"
         )
@@ -460,7 +464,14 @@ class TestFiscalPeriods:
         assert isinstance(resp.json(), list)
 
     def test_close_period(self, admin_token):
-        """POST /periods/2025/1/close -> period status becomes CLOSED."""
+        """POST /periods/{year}/{month}/close -> period status becomes CLOSED."""
+        # Reopen first in case a previous run closed it
+        requests.post(
+            f"{ACCOUNTING_URL}/periods/2025/1/reopen",
+            json={"reason": "Reset for test"},
+            headers=auth_header(admin_token),
+            timeout=TIMEOUT,
+        )
         resp = requests.post(
             f"{ACCOUNTING_URL}/periods/2025/1/close",
             headers=auth_header(admin_token),

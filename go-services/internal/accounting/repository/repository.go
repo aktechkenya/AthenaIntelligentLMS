@@ -89,13 +89,14 @@ func (r *Repository) CreateJournalEntry(ctx context.Context, entry *model.Journa
 	entry.CreatedAt = now
 	entry.UpdatedAt = now
 
-	_, err = tx.Exec(ctx,
+	err = tx.QueryRow(ctx,
 		`INSERT INTO journal_entries (id, tenant_id, reference, description, entry_date, status, source_event, source_id, total_debit, total_credit, posted_by, created_by, is_system_generated, created_at, updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+		 RETURNING entry_number`,
 		entry.ID, entry.TenantID, entry.Reference, entry.Description, entry.EntryDate,
 		string(entry.Status), entry.SourceEvent, entry.SourceID,
 		entry.TotalDebit, entry.TotalCredit, entry.PostedBy,
-		entry.CreatedBy, entry.IsSystemGenerated, entry.CreatedAt, entry.UpdatedAt)
+		entry.CreatedBy, entry.IsSystemGenerated, entry.CreatedAt, entry.UpdatedAt).Scan(&entry.EntryNumber)
 	if err != nil {
 		return fmt.Errorf("insert journal entry: %w", err)
 	}
@@ -125,7 +126,7 @@ func (r *Repository) CreateJournalEntry(ctx context.Context, entry *model.Journa
 		for _, line := range entry.Lines {
 			_, err = tx.Exec(ctx,
 				`INSERT INTO account_balances (id, tenant_id, account_id, period_year, period_month, opening_balance, total_debits, total_credits, closing_balance, currency, created_at, updated_at)
-				 VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $6 - $7, 'KES', NOW(), NOW())
+				 VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $6::numeric - $7::numeric, 'KES', NOW(), NOW())
 				 ON CONFLICT (tenant_id, account_id, period_year, period_month)
 				 DO UPDATE SET
 				   total_debits = account_balances.total_debits + EXCLUDED.total_debits,
@@ -332,11 +333,11 @@ func (r *Repository) UpdateEntryStatus(ctx context.Context, entry *model.Journal
 	_, err := r.pool.Exec(ctx,
 		`UPDATE journal_entries SET status = $1, approved_by = $2, approved_at = $3,
 		 rejection_reason = $4, reversed_by = $5, reversed_at = $6, reversal_reason = $7,
-		 original_entry_id = $8, updated_at = NOW()
-		 WHERE id = $9 AND tenant_id = $10`,
+		 original_entry_id = $8, posted_by = $9, updated_at = NOW()
+		 WHERE id = $10 AND tenant_id = $11`,
 		string(entry.Status), entry.ApprovedBy, entry.ApprovedAt,
 		entry.RejectionReason, entry.ReversedBy, entry.ReversedAt, entry.ReversalReason,
-		entry.OriginalEntryID, entry.ID, entry.TenantID)
+		entry.OriginalEntryID, entry.PostedBy, entry.ID, entry.TenantID)
 	return err
 }
 
@@ -353,7 +354,7 @@ func (r *Repository) ApplyEntryToBalances(ctx context.Context, entry *model.Jour
 	for _, line := range entry.Lines {
 		_, err = tx.Exec(ctx,
 			`INSERT INTO account_balances (id, tenant_id, account_id, period_year, period_month, opening_balance, total_debits, total_credits, closing_balance, currency, created_at, updated_at)
-			 VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $6 - $7, 'KES', NOW(), NOW())
+			 VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $6::numeric - $7::numeric, 'KES', NOW(), NOW())
 			 ON CONFLICT (tenant_id, account_id, period_year, period_month)
 			 DO UPDATE SET
 			   total_debits = account_balances.total_debits + EXCLUDED.total_debits,
