@@ -91,7 +91,11 @@ func main() {
 	ovPublisher := ovevent.NewPublisher(pub, logger)
 	auditSvc := service.NewAuditService(repo, logger)
 	walletSvc := service.NewWalletService(repo, ovPublisher, auditSvc, logger)
-	h := handler.New(walletSvc, auditSvc, logger)
+	eodSvc := service.NewEODService(repo, ovPublisher, auditSvc, logger)
+	h := handler.New(walletSvc, auditSvc, eodSvc, logger)
+
+	// Start EOD scheduler in background (runs daily at 23:00 UTC)
+	go eodSvc.StartScheduler(ctx, 23)
 
 	// Router
 	r := chi.NewRouter()

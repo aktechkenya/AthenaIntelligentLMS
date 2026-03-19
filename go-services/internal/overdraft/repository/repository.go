@@ -385,6 +385,29 @@ func (r *Repository) FindOpenOrPartialStatements(ctx context.Context) ([]model.O
 	return stmts, rows.Err()
 }
 
+func (r *Repository) ListBillingStatementsByFacility(ctx context.Context, facilityID uuid.UUID) ([]model.OverdraftBillingStatement, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id,tenant_id,facility_id,billing_date,period_start,period_end,opening_balance,
+		 interest_accrued,fees_charged,payments_received,closing_balance,minimum_payment_due,due_date,status,created_at
+		 FROM overdraft_billing_statements WHERE facility_id=$1 ORDER BY billing_date DESC`, facilityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var stmts []model.OverdraftBillingStatement
+	for rows.Next() {
+		var s model.OverdraftBillingStatement
+		if err := rows.Scan(&s.ID, &s.TenantID, &s.FacilityID, &s.BillingDate, &s.PeriodStart, &s.PeriodEnd,
+			&s.OpeningBalance, &s.InterestAccrued, &s.FeesCharged, &s.PaymentsReceived,
+			&s.ClosingBalance, &s.MinimumPaymentDue, &s.DueDate, &s.Status, &s.CreatedAt); err != nil {
+			return nil, err
+		}
+		stmts = append(stmts, s)
+	}
+	return stmts, rows.Err()
+}
+
 func (r *Repository) UpdateBillingStatementStatus(ctx context.Context, id uuid.UUID, status string) error {
 	_, err := r.pool.Exec(ctx,
 		`UPDATE overdraft_billing_statements SET status=$1 WHERE id=$2`, status, id)

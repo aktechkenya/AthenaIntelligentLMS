@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -21,12 +22,13 @@ import (
 type Handler struct {
 	walletSvc *service.WalletService
 	auditSvc  *service.AuditService
+	eodSvc    *service.EODService
 	logger    *zap.Logger
 }
 
 // New creates a new Handler.
-func New(walletSvc *service.WalletService, auditSvc *service.AuditService, logger *zap.Logger) *Handler {
-	return &Handler{walletSvc: walletSvc, auditSvc: auditSvc, logger: logger}
+func New(walletSvc *service.WalletService, auditSvc *service.AuditService, eodSvc *service.EODService, logger *zap.Logger) *Handler {
+	return &Handler{walletSvc: walletSvc, auditSvc: auditSvc, eodSvc: eodSvc, logger: logger}
 }
 
 // RegisterRoutes registers all overdraft routes on the given router.
@@ -50,6 +52,10 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Route("/api/v1/overdraft", func(r chi.Router) {
 		r.Get("/audit", h.GetAuditLog)
 		r.Get("/summary", h.GetOverdraftSummary)
+		r.Post("/eod/run", h.RunEOD)
+		r.Get("/eod/status", h.GetEODStatus)
+		r.Get("/{walletId}/interest-charges", h.GetInterestCharges)
+		r.Get("/{walletId}/billing-statements", h.GetBillingStatements)
 	})
 }
 
@@ -276,6 +282,70 @@ func (h *Handler) GetAuditLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// RunEOD handles POST /api/v1/overdraft/eod/run — triggers EOD batch processing.
+func (h *Handler) RunEOD(w http.ResponseWriter, r *http.Request) {
+	dateStr := r.URL.Query().Get("date")
+	runDate := time.Now().UTC()
+	if dateStr != "" {
+		parsed, err := time.Parse("2006-01-02", dateStr)
+		if err != nil {
+			httputil.WriteBadRequest(w, "Invalid date format, use YYYY-MM-DD", r.URL.Path)
+			return
+		}
+		runDate = parsed
+	}
+
+	result, err := h.eodSvc.RunEOD(r.Context(), runDate)
+	if err != nil {
+		if strings.Contains(err.Error(), "already running") {
+			httputil.WriteConflict(w, err.Error(), r.URL.Path)
+			return
+		}
+		h.handleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, result)
+}
+
+// GetEODStatus handles GET /api/v1/overdraft/eod/status
+func (h *Handler) GetEODStatus(w http.ResponseWriter, r *http.Request) {
+	httputil.WriteJSON(w, http.StatusOK, h.eodSvc.LastRunStatus())
+}
+
+// GetInterestCharges handles GET /api/v1/overdraft/{walletId}/interest-charges
+func (h *Handler) GetInterestCharges(w http.ResponseWriter, r *http.Request) {
+	walletID, err := uuid.Parse(chi.URLParam(r, "walletId"))
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid wallet ID", r.URL.Path)
+		return
+	}
+
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	resp, err := h.walletSvc.GetInterestCharges(r.Context(), walletID, tenantID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// GetBillingStatements handles GET /api/v1/overdraft/{walletId}/billing-statements
+func (h *Handler) GetBillingStatements(w http.ResponseWriter, r *http.Request) {
+	walletID, err := uuid.Parse(chi.URLParam(r, "walletId"))
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid wallet ID", r.URL.Path)
+		return
+	}
+
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	resp, err := h.walletSvc.GetBillingStatements(r.Context(), walletID, tenantID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
 	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 

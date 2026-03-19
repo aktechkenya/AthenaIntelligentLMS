@@ -443,6 +443,68 @@ func (s *WalletService) GetSummary(ctx context.Context, tenantID string) (map[st
 	}, nil
 }
 
+// GetInterestCharges returns interest charges for the wallet's overdraft facility.
+func (s *WalletService) GetInterestCharges(ctx context.Context, walletID uuid.UUID, tenantID string) ([]model.InterestChargeResponse, error) {
+	facility, err := s.repo.FindLatestFacilityByWallet(ctx, walletID)
+	if err != nil || facility == nil {
+		return []model.InterestChargeResponse{}, nil
+	}
+
+	charges, err := s.repo.ListInterestCharges(ctx, facility.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]model.InterestChargeResponse, 0, len(charges))
+	for _, c := range charges {
+		result = append(result, model.InterestChargeResponse{
+			ID:              c.ID,
+			FacilityID:      c.FacilityID,
+			ChargeDate:      c.ChargeDate,
+			DrawnAmount:     c.DrawnAmount,
+			DailyRate:       c.DailyRate,
+			InterestCharged: c.InterestCharged,
+			Reference:       c.Reference,
+			CreatedAt:       c.CreatedAt,
+		})
+	}
+	return result, nil
+}
+
+// GetBillingStatements returns billing statements for the wallet's overdraft facility.
+func (s *WalletService) GetBillingStatements(ctx context.Context, walletID uuid.UUID, tenantID string) ([]model.BillingStatementResponse, error) {
+	facility, err := s.repo.FindLatestFacilityByWallet(ctx, walletID)
+	if err != nil || facility == nil {
+		return []model.BillingStatementResponse{}, nil
+	}
+
+	stmts, err := s.repo.ListBillingStatementsByFacility(ctx, facility.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]model.BillingStatementResponse, 0, len(stmts))
+	for _, st := range stmts {
+		result = append(result, model.BillingStatementResponse{
+			ID:                st.ID,
+			FacilityID:        st.FacilityID,
+			BillingDate:       st.BillingDate,
+			PeriodStart:       st.PeriodStart,
+			PeriodEnd:         st.PeriodEnd,
+			OpeningBalance:    st.OpeningBalance,
+			InterestAccrued:   st.InterestAccrued,
+			FeesCharged:       st.FeesCharged,
+			PaymentsReceived:  st.PaymentsReceived,
+			ClosingBalance:    st.ClosingBalance,
+			MinimumPaymentDue: st.MinimumPaymentDue,
+			DueDate:           st.DueDate,
+			Status:            st.Status,
+			CreatedAt:         st.CreatedAt,
+		})
+	}
+	return result, nil
+}
+
 func strPtr(s string) *string {
 	if s == "" {
 		return nil
