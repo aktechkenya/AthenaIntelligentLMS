@@ -90,11 +90,12 @@ func (r *Repository) CreateJournalEntry(ctx context.Context, entry *model.Journa
 	entry.UpdatedAt = now
 
 	_, err = tx.Exec(ctx,
-		`INSERT INTO journal_entries (id, tenant_id, reference, description, entry_date, status, source_event, source_id, total_debit, total_credit, posted_by, created_at, updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+		`INSERT INTO journal_entries (id, tenant_id, reference, description, entry_date, status, source_event, source_id, total_debit, total_credit, posted_by, created_by, is_system_generated, created_at, updated_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
 		entry.ID, entry.TenantID, entry.Reference, entry.Description, entry.EntryDate,
 		string(entry.Status), entry.SourceEvent, entry.SourceID,
-		entry.TotalDebit, entry.TotalCredit, entry.PostedBy, entry.CreatedAt, entry.UpdatedAt)
+		entry.TotalDebit, entry.TotalCredit, entry.PostedBy,
+		entry.CreatedBy, entry.IsSystemGenerated, entry.CreatedAt, entry.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("insert journal entry: %w", err)
 	}
@@ -117,23 +118,25 @@ func (r *Repository) CreateJournalEntry(ctx context.Context, entry *model.Journa
 		}
 	}
 
-	// Update account balances
-	year := entry.EntryDate.Year()
-	month := int(entry.EntryDate.Month())
-	for _, line := range entry.Lines {
-		_, err = tx.Exec(ctx,
-			`INSERT INTO account_balances (id, tenant_id, account_id, period_year, period_month, opening_balance, total_debits, total_credits, closing_balance, currency, created_at, updated_at)
-			 VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $6 - $7, 'KES', NOW(), NOW())
-			 ON CONFLICT (tenant_id, account_id, period_year, period_month)
-			 DO UPDATE SET
-			   total_debits = account_balances.total_debits + EXCLUDED.total_debits,
-			   total_credits = account_balances.total_credits + EXCLUDED.total_credits,
-			   closing_balance = account_balances.opening_balance + (account_balances.total_debits + EXCLUDED.total_debits) - (account_balances.total_credits + EXCLUDED.total_credits),
-			   updated_at = NOW()`,
-			uuid.New(), entry.TenantID, line.AccountID, year, month,
-			line.DebitAmount, line.CreditAmount)
-		if err != nil {
-			return fmt.Errorf("upsert account balance for account %s: %w", line.AccountID, err)
+	// Update account balances only for POSTED entries
+	if entry.Status == model.EntryStatusPosted {
+		year := entry.EntryDate.Year()
+		month := int(entry.EntryDate.Month())
+		for _, line := range entry.Lines {
+			_, err = tx.Exec(ctx,
+				`INSERT INTO account_balances (id, tenant_id, account_id, period_year, period_month, opening_balance, total_debits, total_credits, closing_balance, currency, created_at, updated_at)
+				 VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $6 - $7, 'KES', NOW(), NOW())
+				 ON CONFLICT (tenant_id, account_id, period_year, period_month)
+				 DO UPDATE SET
+				   total_debits = account_balances.total_debits + EXCLUDED.total_debits,
+				   total_credits = account_balances.total_credits + EXCLUDED.total_credits,
+				   closing_balance = account_balances.opening_balance + (account_balances.total_debits + EXCLUDED.total_debits) - (account_balances.total_credits + EXCLUDED.total_credits),
+				   updated_at = NOW()`,
+				uuid.New(), entry.TenantID, line.AccountID, year, month,
+				line.DebitAmount, line.CreditAmount)
+			if err != nil {
+				return fmt.Errorf("upsert account balance for account %s: %w", line.AccountID, err)
+			}
 		}
 	}
 
@@ -153,11 +156,17 @@ func (r *Repository) EntryExistsBySourceEventAndID(ctx context.Context, sourceEv
 func (r *Repository) FindEntryByIDAndTenant(ctx context.Context, id uuid.UUID, tenantID string) (*model.JournalEntry, error) {
 	entry := &model.JournalEntry{}
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, tenant_id, reference, description, entry_date, status, source_event, source_id, total_debit, total_credit, posted_by, created_at, updated_at
+		`SELECT id, tenant_id, reference, description, entry_date, status, source_event, source_id, total_debit, total_credit, posted_by,
+		 entry_number, created_by, approved_by, approved_at, rejection_reason, reversed_by, reversed_at, reversal_reason, original_entry_id, is_system_generated,
+		 created_at, updated_at
 		 FROM journal_entries WHERE id = $1 AND tenant_id = $2`, id, tenantID).
 		Scan(&entry.ID, &entry.TenantID, &entry.Reference, &entry.Description, &entry.EntryDate,
 			&entry.Status, &entry.SourceEvent, &entry.SourceID,
-			&entry.TotalDebit, &entry.TotalCredit, &entry.PostedBy, &entry.CreatedAt, &entry.UpdatedAt)
+			&entry.TotalDebit, &entry.TotalCredit, &entry.PostedBy,
+			&entry.EntryNumber, &entry.CreatedBy, &entry.ApprovedBy, &entry.ApprovedAt,
+			&entry.RejectionReason, &entry.ReversedBy, &entry.ReversedAt, &entry.ReversalReason,
+			&entry.OriginalEntryID, &entry.IsSystemGenerated,
+			&entry.CreatedAt, &entry.UpdatedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
@@ -189,7 +198,9 @@ func (r *Repository) ListEntries(ctx context.Context, tenantID string, from, to 
 		return nil, 0, err
 	}
 
-	listQuery := `SELECT id, tenant_id, reference, description, entry_date, status, source_event, source_id, total_debit, total_credit, posted_by, created_at, updated_at
+	listQuery := `SELECT id, tenant_id, reference, description, entry_date, status, source_event, source_id, total_debit, total_credit, posted_by,
+		entry_number, created_by, approved_by, approved_at, rejection_reason, reversed_by, reversed_at, reversal_reason, original_entry_id, is_system_generated,
+		created_at, updated_at
 		FROM journal_entries WHERE tenant_id = $1`
 	listArgs := []any{tenantID}
 
@@ -214,7 +225,11 @@ func (r *Repository) ListEntries(ctx context.Context, tenantID string, from, to 
 		var e model.JournalEntry
 		if err := rows.Scan(&e.ID, &e.TenantID, &e.Reference, &e.Description, &e.EntryDate,
 			&e.Status, &e.SourceEvent, &e.SourceID,
-			&e.TotalDebit, &e.TotalCredit, &e.PostedBy, &e.CreatedAt, &e.UpdatedAt); err != nil {
+			&e.TotalDebit, &e.TotalCredit, &e.PostedBy,
+			&e.EntryNumber, &e.CreatedBy, &e.ApprovedBy, &e.ApprovedAt,
+			&e.RejectionReason, &e.ReversedBy, &e.ReversedAt, &e.ReversalReason,
+			&e.OriginalEntryID, &e.IsSystemGenerated,
+			&e.CreatedAt, &e.UpdatedAt); err != nil {
 			return nil, 0, err
 		}
 		lines, err := r.findLinesByEntryID(ctx, e.ID)
@@ -236,7 +251,7 @@ func (r *Repository) GetNetBalance(ctx context.Context, accountID uuid.UUID, ten
 		`SELECT COALESCE(SUM(debit_amount), 0) - COALESCE(SUM(credit_amount), 0)
 		 FROM journal_lines jl
 		 JOIN journal_entries je ON jl.entry_id = je.id
-		 WHERE jl.account_id = $1 AND je.tenant_id = $2`,
+		 WHERE jl.account_id = $1 AND je.tenant_id = $2 AND je.status = 'POSTED'`,
 		accountID, tenantID).Scan(&net)
 	return net, err
 }
@@ -310,4 +325,251 @@ func (r *Repository) scanAccounts(ctx context.Context, query string, args ...any
 		accounts = append(accounts, a)
 	}
 	return accounts, rows.Err()
+}
+
+// UpdateEntryStatus updates the status and related fields of a journal entry.
+func (r *Repository) UpdateEntryStatus(ctx context.Context, entry *model.JournalEntry) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE journal_entries SET status = $1, approved_by = $2, approved_at = $3,
+		 rejection_reason = $4, reversed_by = $5, reversed_at = $6, reversal_reason = $7,
+		 original_entry_id = $8, updated_at = NOW()
+		 WHERE id = $9 AND tenant_id = $10`,
+		string(entry.Status), entry.ApprovedBy, entry.ApprovedAt,
+		entry.RejectionReason, entry.ReversedBy, entry.ReversedAt, entry.ReversalReason,
+		entry.OriginalEntryID, entry.ID, entry.TenantID)
+	return err
+}
+
+// ApplyEntryToBalances applies journal line amounts to account balances.
+func (r *Repository) ApplyEntryToBalances(ctx context.Context, entry *model.JournalEntry) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	year := entry.EntryDate.Year()
+	month := int(entry.EntryDate.Month())
+	for _, line := range entry.Lines {
+		_, err = tx.Exec(ctx,
+			`INSERT INTO account_balances (id, tenant_id, account_id, period_year, period_month, opening_balance, total_debits, total_credits, closing_balance, currency, created_at, updated_at)
+			 VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $6 - $7, 'KES', NOW(), NOW())
+			 ON CONFLICT (tenant_id, account_id, period_year, period_month)
+			 DO UPDATE SET
+			   total_debits = account_balances.total_debits + EXCLUDED.total_debits,
+			   total_credits = account_balances.total_credits + EXCLUDED.total_credits,
+			   closing_balance = account_balances.opening_balance + (account_balances.total_debits + EXCLUDED.total_debits) - (account_balances.total_credits + EXCLUDED.total_credits),
+			   updated_at = NOW()`,
+			uuid.New(), entry.TenantID, line.AccountID, year, month,
+			line.DebitAmount, line.CreditAmount)
+		if err != nil {
+			return fmt.Errorf("upsert account balance for account %s: %w", line.AccountID, err)
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// --- Fiscal Periods ---
+
+// FindPeriod finds a fiscal period by tenant, year, and month.
+func (r *Repository) FindPeriod(ctx context.Context, tenantID string, year, month int) (*model.FiscalPeriod, error) {
+	p := &model.FiscalPeriod{}
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, tenant_id, period_year, period_month, status, closed_by, closed_at, reopened_by, reopen_reason, created_at, updated_at
+		 FROM fiscal_periods WHERE tenant_id = $1 AND period_year = $2 AND period_month = $3`,
+		tenantID, year, month).Scan(&p.ID, &p.TenantID, &p.PeriodYear, &p.PeriodMonth, &p.Status,
+		&p.ClosedBy, &p.ClosedAt, &p.ReopenedBy, &p.ReopenReason, &p.CreatedAt, &p.UpdatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return p, nil
+}
+
+// ListPeriods returns all fiscal periods for a tenant, ordered by year/month desc.
+func (r *Repository) ListPeriods(ctx context.Context, tenantID string) ([]model.FiscalPeriod, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, tenant_id, period_year, period_month, status, closed_by, closed_at, reopened_by, reopen_reason, created_at, updated_at
+		 FROM fiscal_periods WHERE tenant_id = $1 ORDER BY period_year DESC, period_month DESC`, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var periods []model.FiscalPeriod
+	for rows.Next() {
+		var p model.FiscalPeriod
+		if err := rows.Scan(&p.ID, &p.TenantID, &p.PeriodYear, &p.PeriodMonth, &p.Status,
+			&p.ClosedBy, &p.ClosedAt, &p.ReopenedBy, &p.ReopenReason, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		periods = append(periods, p)
+	}
+	return periods, rows.Err()
+}
+
+// UpsertPeriod creates or updates a fiscal period.
+func (r *Repository) UpsertPeriod(ctx context.Context, p *model.FiscalPeriod) error {
+	if p.ID == uuid.Nil {
+		p.ID = uuid.New()
+	}
+	now := time.Now()
+	p.UpdatedAt = now
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO fiscal_periods (id, tenant_id, period_year, period_month, status, closed_by, closed_at, reopened_by, reopen_reason, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		 ON CONFLICT (tenant_id, period_year, period_month)
+		 DO UPDATE SET status = EXCLUDED.status, closed_by = EXCLUDED.closed_by, closed_at = EXCLUDED.closed_at,
+		   reopened_by = EXCLUDED.reopened_by, reopen_reason = EXCLUDED.reopen_reason, updated_at = EXCLUDED.updated_at`,
+		p.ID, p.TenantID, p.PeriodYear, p.PeriodMonth, string(p.Status),
+		p.ClosedBy, p.ClosedAt, p.ReopenedBy, p.ReopenReason, now, p.UpdatedAt)
+	return err
+}
+
+// --- Audit Log ---
+
+// InsertAuditLog inserts a financial audit log entry.
+func (r *Repository) InsertAuditLog(ctx context.Context, log *model.FinancialAuditLog) error {
+	log.ID = uuid.New()
+	log.CreatedAt = time.Now()
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO financial_audit_log (id, tenant_id, action, entity_type, entity_id, user_id, user_role, details, ip_address, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		log.ID, log.TenantID, log.Action, log.EntityType, log.EntityID,
+		log.UserID, log.UserRole, log.Details, log.IPAddress, log.CreatedAt)
+	return err
+}
+
+// ListAuditLogs returns audit logs with optional filters.
+func (r *Repository) ListAuditLogs(ctx context.Context, tenantID string, entityType, userID *string, from, to *time.Time, page, size int) ([]model.FinancialAuditLog, int64, error) {
+	args := []any{tenantID}
+	countQuery := `SELECT COUNT(*) FROM financial_audit_log WHERE tenant_id = $1`
+	listQuery := `SELECT id, tenant_id, action, entity_type, entity_id, user_id, user_role, details, ip_address, created_at
+		FROM financial_audit_log WHERE tenant_id = $1`
+
+	argIdx := 2
+	if entityType != nil {
+		filter := fmt.Sprintf(` AND entity_type = $%d`, argIdx)
+		countQuery += filter
+		listQuery += filter
+		args = append(args, *entityType)
+		argIdx++
+	}
+	if userID != nil {
+		filter := fmt.Sprintf(` AND user_id = $%d`, argIdx)
+		countQuery += filter
+		listQuery += filter
+		args = append(args, *userID)
+		argIdx++
+	}
+	if from != nil {
+		filter := fmt.Sprintf(` AND created_at >= $%d`, argIdx)
+		countQuery += filter
+		listQuery += filter
+		args = append(args, *from)
+		argIdx++
+	}
+	if to != nil {
+		filter := fmt.Sprintf(` AND created_at <= $%d`, argIdx)
+		countQuery += filter
+		listQuery += filter
+		args = append(args, *to)
+		argIdx++
+	}
+
+	var total int64
+	if err := r.pool.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	offset := page * size
+	listQuery += fmt.Sprintf(` ORDER BY created_at DESC LIMIT $%d OFFSET $%d`, argIdx, argIdx+1)
+	args = append(args, size, offset)
+
+	rows, err := r.pool.Query(ctx, listQuery, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var logs []model.FinancialAuditLog
+	for rows.Next() {
+		var l model.FinancialAuditLog
+		if err := rows.Scan(&l.ID, &l.TenantID, &l.Action, &l.EntityType, &l.EntityID,
+			&l.UserID, &l.UserRole, &l.Details, &l.IPAddress, &l.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		logs = append(logs, l)
+	}
+	return logs, total, rows.Err()
+}
+
+// FindAuditLogsByEntity returns audit logs for a specific entity.
+func (r *Repository) FindAuditLogsByEntity(ctx context.Context, tenantID, entityType, entityID string) ([]model.FinancialAuditLog, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, tenant_id, action, entity_type, entity_id, user_id, user_role, details, ip_address, created_at
+		 FROM financial_audit_log WHERE tenant_id = $1 AND entity_type = $2 AND entity_id = $3
+		 ORDER BY created_at DESC`, tenantID, entityType, entityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []model.FinancialAuditLog
+	for rows.Next() {
+		var l model.FinancialAuditLog
+		if err := rows.Scan(&l.ID, &l.TenantID, &l.Action, &l.EntityType, &l.EntityID,
+			&l.UserID, &l.UserRole, &l.Details, &l.IPAddress, &l.CreatedAt); err != nil {
+			return nil, err
+		}
+		logs = append(logs, l)
+	}
+	return logs, rows.Err()
+}
+
+// GetCashFlowLines returns journal lines touching a specific account, grouped by counter-account.
+func (r *Repository) GetCashFlowLines(ctx context.Context, cashAccountID uuid.UUID, tenantID string, from, to time.Time) ([]struct {
+	CounterAccountID   uuid.UUID
+	CounterAccountCode string
+	CounterAccountName string
+	CounterAccountType string
+	NetAmount          decimal.Decimal
+}, error) {
+	query := `
+		SELECT ca.id, ca.code, ca.name, ca.account_type::text,
+		       COALESCE(SUM(jl2.debit_amount), 0) - COALESCE(SUM(jl2.credit_amount), 0) as net_amount
+		FROM journal_lines jl1
+		JOIN journal_entries je ON jl1.entry_id = je.id
+		JOIN journal_lines jl2 ON jl2.entry_id = je.id AND jl2.account_id != $1
+		JOIN chart_of_accounts ca ON jl2.account_id = ca.id
+		WHERE jl1.account_id = $1 AND je.tenant_id = $2
+		  AND je.entry_date >= $3 AND je.entry_date <= $4
+		  AND je.status = 'POSTED'
+		GROUP BY ca.id, ca.code, ca.name, ca.account_type
+		ORDER BY ca.code`
+
+	rows, err := r.pool.Query(ctx, query, cashAccountID, tenantID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type RetType = struct {
+		CounterAccountID   uuid.UUID
+		CounterAccountCode string
+		CounterAccountName string
+		CounterAccountType string
+		NetAmount          decimal.Decimal
+	}
+	var results []RetType
+	for rows.Next() {
+		var item RetType
+		if err := rows.Scan(&item.CounterAccountID, &item.CounterAccountCode, &item.CounterAccountName, &item.CounterAccountType, &item.NetAmount); err != nil {
+			return nil, err
+		}
+		results = append(results, item)
+	}
+	return results, rows.Err()
 }
