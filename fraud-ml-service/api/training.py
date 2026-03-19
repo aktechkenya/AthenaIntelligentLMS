@@ -4,6 +4,7 @@ Training API — endpoints for triggering model training and checking status.
 from __future__ import annotations
 
 import asyncio
+import threading
 from typing import Any, Dict
 
 import structlog
@@ -73,7 +74,31 @@ async def train_anomaly(req: TrainRequest, background_tasks: BackgroundTasks):
             TRAIN_RUNS.labels(model_type="anomaly", status="error").inc()
             logger.error("Anomaly training failed", error=str(e))
 
-    background_tasks.add_task(asyncio.create_task, _train())
+    def _run_in_thread():
+        """Run async training in a dedicated thread with its own event loop and DB engine."""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            # Create a fresh DB engine for this thread (avoids cross-loop issues)
+            from db.database import DATABASE_URL
+            from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+            fresh_engine = create_async_engine(DATABASE_URL, echo=False, pool_pre_ping=True, pool_size=5)
+            fresh_session_maker = async_sessionmaker(fresh_engine, expire_on_commit=False)
+
+            # Monkey-patch the session factory for this thread
+            import features.feature_engineer as fe
+            original = fe.AsyncSessionLocal
+            fe.AsyncSessionLocal = fresh_session_maker
+            try:
+                loop.run_until_complete(_train())
+            finally:
+                fe.AsyncSessionLocal = original
+                loop.run_until_complete(fresh_engine.dispose())
+        finally:
+            loop.close()
+
+    thread = threading.Thread(target=_run_in_thread, daemon=True)
+    thread.start()
     return TrainResponse(status="started", message="Anomaly model training started")
 
 
@@ -112,7 +137,28 @@ async def train_fraud_scorer(req: TrainRequest, background_tasks: BackgroundTask
             TRAIN_RUNS.labels(model_type="lgbm", status="error").inc()
             logger.error("Fraud scorer training failed", error=str(e))
 
-    background_tasks.add_task(asyncio.create_task, _train())
+    def _run_in_thread():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            from db.database import DATABASE_URL
+            from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+            fresh_engine = create_async_engine(DATABASE_URL, echo=False, pool_pre_ping=True, pool_size=5)
+            fresh_session_maker = async_sessionmaker(fresh_engine, expire_on_commit=False)
+
+            import features.feature_engineer as fe
+            original = fe.AsyncSessionLocal
+            fe.AsyncSessionLocal = fresh_session_maker
+            try:
+                loop.run_until_complete(_train())
+            finally:
+                fe.AsyncSessionLocal = original
+                loop.run_until_complete(fresh_engine.dispose())
+        finally:
+            loop.close()
+
+    thread = threading.Thread(target=_run_in_thread, daemon=True)
+    thread.start()
     return TrainResponse(status="started", message="Fraud scorer training started")
 
 

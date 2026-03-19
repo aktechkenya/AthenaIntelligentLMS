@@ -80,7 +80,7 @@ class AnomalyDetector:
 
             return {
                 "anomaly_score": round(float(anomaly_score), 4),
-                "is_anomaly": prediction == -1,
+                "is_anomaly": bool(prediction == -1),
                 "raw_score": round(float(raw_score), 4),
             }
         except Exception as e:

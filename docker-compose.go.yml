@@ -394,6 +394,30 @@ services:
       start_period: 30s
       retries: 3
 
+  # ─── Fraud ML Service (Python sidecar — Isolation Forest + LightGBM) ────────
+  fraud-ml-service:
+    build:
+      context: /mnt/storage/AthenaIntelligentLMS/fraud-ml-service
+    ports: ["28101:8101"]
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://athena:${POSTGRES_PASSWORD:-athena_secret_change_me}@postgres:5432/athena_fraud"
+      MLFLOW_TRACKING_URI: "sqlite:///mlflow.db"
+      SCORE_WEIGHT_RULE: "0.3"
+      SCORE_WEIGHT_ANOMALY: "0.3"
+      SCORE_WEIGHT_LGBM: "0.4"
+      PSI_THRESHOLD: "0.2"
+      KS_DROP_THRESHOLD: "0.05"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [athena-net]
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8101/health\")' || exit 1"]
+      interval: 20s
+      timeout: 10s
+      start_period: 45s
+      retries: 3
+
   go-fraud-detection-service:
     build:
       context: ./go-services
@@ -408,10 +432,13 @@ services:
       DB_NAME: athena_fraud
       SERVICE_NAME: go-fraud-detection-service
       RABBITMQ_CONSUME_ENABLED: "true"
+      FRAUD_ML_SERVICE_URL: "http://fraud-ml-service:8101"
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      fraud-ml-service:
         condition: service_healthy
     networks: [athena-net]
     healthcheck:
