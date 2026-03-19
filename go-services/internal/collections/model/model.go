@@ -227,13 +227,27 @@ type PtpResponse struct {
 
 // CollectionSummaryResponse is the JSON response for the summary endpoint.
 type CollectionSummaryResponse struct {
-	TotalOpenCases        int64  `json:"totalOpenCases"`
-	WatchCases            int64  `json:"watchCases"`
-	SubstandardCases      int64  `json:"substandardCases"`
-	DoubtfulCases         int64  `json:"doubtfulCases"`
-	LossCases             int64  `json:"lossCases"`
-	CriticalPriorityCases int64  `json:"criticalPriorityCases"`
-	TenantID              string `json:"tenantId"`
+	TotalOpenCases         int64           `json:"totalOpenCases"`
+	WatchCases             int64           `json:"watchCases"`
+	SubstandardCases       int64           `json:"substandardCases"`
+	DoubtfulCases          int64           `json:"doubtfulCases"`
+	LossCases              int64           `json:"lossCases"`
+	CriticalPriorityCases  int64           `json:"criticalPriorityCases"`
+	TotalOutstandingAmount decimal.Decimal `json:"totalOutstandingAmount"`
+	WatchAmount            decimal.Decimal `json:"watchAmount"`
+	SubstandardAmount      decimal.Decimal `json:"substandardAmount"`
+	DoubtfulAmount         decimal.Decimal `json:"doubtfulAmount"`
+	LossAmount             decimal.Decimal `json:"lossAmount"`
+	PendingPtpCount        int64           `json:"pendingPtpCount"`
+	OverdueFollowUpCount   int64           `json:"overdueFollowUpCount"`
+	TenantID               string          `json:"tenantId"`
+}
+
+// CollectionCaseDetailResponse is the composite response for a case with its actions and PTPs.
+type CollectionCaseDetailResponse struct {
+	Case    CollectionCaseResponse   `json:"case"`
+	Actions []CollectionActionResponse `json:"actions"`
+	Ptps    []PtpResponse            `json:"ptps"`
 }
 
 // ---------- Helper converters ----------

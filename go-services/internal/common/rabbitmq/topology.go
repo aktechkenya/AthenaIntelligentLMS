@@ -46,6 +46,11 @@ const (
 	ShopRoutingPattern     = "shop.#"
 	OverdraftRoutingPattern = "overdraft.#"
 	FraudRoutingPattern    = "fraud.#"
+
+	// Collections-specific routing keys
+	LoanClosedKey            = "loan.closed"
+	LoanWrittenOffKey        = "loan.written.off"
+	LoanRepaymentReceivedKey = "loan.repayment.received"
 )
 
 // Binding represents a queue-to-exchange binding.
@@ -68,6 +73,9 @@ var AllBindings = []Binding{
 	{CollectionsQueue, DPDRoutingPattern},
 	{CollectionsQueue, StageRoutingPattern},
 	{CollectionsQueue, OverdraftRoutingPattern},
+	{CollectionsQueue, LoanClosedKey},
+	{CollectionsQueue, LoanWrittenOffKey},
+	{CollectionsQueue, LoanRepaymentReceivedKey},
 
 	// Compliance bindings
 	{ComplianceQueue, AMLRoutingPattern},

@@ -36,6 +36,7 @@ func (h *Handler) Routes(r chi.Router) {
 
 		// Cases
 		r.Get("/cases", h.ListCases)
+		r.Get("/cases/{id}/detail", h.GetCaseDetail)
 		r.Get("/cases/{id}", h.GetCase)
 		r.Get("/cases/loan/{loanId}", h.GetCaseByLoan)
 		r.Put("/cases/{id}", h.UpdateCase)
@@ -62,7 +63,7 @@ func (h *Handler) GetSummary(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, summary)
 }
 
-// ListCases returns a paginated list of collection cases.
+// ListCases returns a paginated list of collection cases with optional filtering.
 func (h *Handler) ListCases(w http.ResponseWriter, r *http.Request) {
 	tenantID := tenantID(r)
 	page := queryInt(r, "page", 0)
@@ -74,13 +75,40 @@ func (h *Handler) ListCases(w http.ResponseWriter, r *http.Request) {
 		statusPtr = &st
 	}
 
-	result, err := h.svc.ListCases(r.Context(), tenantID, statusPtr, page, size)
+	filters := service.CaseFilterParams{
+		Stage:      r.URL.Query().Get("stage"),
+		Priority:   r.URL.Query().Get("priority"),
+		AssignedTo: r.URL.Query().Get("assignedTo"),
+		Search:     r.URL.Query().Get("search"),
+		Sort:       r.URL.Query().Get("sort"),
+		Dir:        r.URL.Query().Get("dir"),
+		MinDPD:     queryInt(r, "minDpd", 0),
+		MaxDPD:     queryInt(r, "maxDpd", 0),
+	}
+
+	result, err := h.svc.ListCases(r.Context(), tenantID, statusPtr, filters, page, size)
 	if err != nil {
 		middleware.HandleError(w, r, err)
 		return
 	}
 
 	resp := dto.NewPageResponse(result.Content, result.Page, result.Size, result.TotalElements)
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// GetCaseDetail returns a composite response with case, actions, and PTPs.
+func (h *Handler) GetCaseDetail(w http.ResponseWriter, r *http.Request) {
+	id, err := uuidParam(r, "id")
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid case ID", r.URL.Path)
+		return
+	}
+	tenantID := tenantID(r)
+	resp, err := h.svc.GetCaseDetail(r.Context(), id, tenantID)
+	if err != nil {
+		middleware.HandleError(w, r, err)
+		return
+	}
 	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 

@@ -197,26 +197,81 @@ func (s *CollectionsService) GetCaseByLoan(ctx context.Context, loanID uuid.UUID
 	return &resp, nil
 }
 
-// ListCases returns a paginated list of collection cases.
-func (s *CollectionsService) ListCases(ctx context.Context, tenantID string, status *model.CaseStatus, page, size int) (*ListCasesResult, error) {
+// CaseFilterParams holds optional filter parameters for listing cases.
+type CaseFilterParams struct {
+	Stage      string
+	Priority   string
+	AssignedTo string
+	MinDPD     int
+	MaxDPD     int
+	Search     string
+	Sort       string
+	Dir        string
+}
+
+// hasFilters returns true if any filter field is set.
+func (f CaseFilterParams) hasFilters() bool {
+	return f.Stage != "" || f.Priority != "" || f.AssignedTo != "" ||
+		f.MinDPD != 0 || f.MaxDPD != 0 || f.Search != "" || f.Sort != "" || f.Dir != ""
+}
+
+// ListCases returns a paginated list of collection cases with optional filtering.
+func (s *CollectionsService) ListCases(ctx context.Context, tenantID string, status *model.CaseStatus, filters CaseFilterParams, page, size int) (*ListCasesResult, error) {
+	offset := page * size
+
+	// If any advanced filter is set, use FindByFilters
+	if filters.hasFilters() || status != nil {
+		rf := repository.CaseFilters{}
+		if status != nil {
+			st := string(*status)
+			rf.Status = &st
+		}
+		if filters.Stage != "" {
+			rf.Stage = &filters.Stage
+		}
+		if filters.Priority != "" {
+			rf.Priority = &filters.Priority
+		}
+		if filters.AssignedTo != "" {
+			rf.AssignedTo = &filters.AssignedTo
+		}
+		if filters.MinDPD != 0 {
+			rf.MinDPD = &filters.MinDPD
+		}
+		if filters.MaxDPD != 0 {
+			rf.MaxDPD = &filters.MaxDPD
+		}
+		if filters.Search != "" {
+			rf.Search = &filters.Search
+		}
+
+		cases, total, err := s.caseRepo.FindByFilters(ctx, tenantID, rf, filters.Sort, filters.Dir, offset, size)
+		if err != nil {
+			return nil, err
+		}
+
+		responses := make([]model.CollectionCaseResponse, len(cases))
+		for i, c := range cases {
+			responses[i] = model.ToCaseResponse(c)
+		}
+		return &ListCasesResult{
+			Content:       responses,
+			Page:          page,
+			Size:          size,
+			TotalElements: total,
+		}, nil
+	}
+
+	// Default: no filters
 	var cases []*model.CollectionCase
 	var total int64
 	var err error
 
-	offset := page * size
-	if status != nil {
-		cases, err = s.caseRepo.FindByTenantIDAndStatus(ctx, tenantID, *status, offset, size)
-		if err != nil {
-			return nil, err
-		}
-		total, err = s.caseRepo.CountByTenantIDAndStatus(ctx, tenantID, *status)
-	} else {
-		cases, err = s.caseRepo.FindByTenantID(ctx, tenantID, offset, size)
-		if err != nil {
-			return nil, err
-		}
-		total, err = s.caseRepo.CountByTenantID(ctx, tenantID)
+	cases, err = s.caseRepo.FindByTenantID(ctx, tenantID, offset, size)
+	if err != nil {
+		return nil, err
 	}
+	total, err = s.caseRepo.CountByTenantID(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -425,7 +480,7 @@ func (s *CollectionsService) ListPtps(ctx context.Context, caseID uuid.UUID, ten
 // Summary
 // -----------------------------------------------------------------------
 
-// GetSummary returns aggregate counts for the tenant's collection cases.
+// GetSummary returns aggregate counts and amounts for the tenant's collection cases.
 func (s *CollectionsService) GetSummary(ctx context.Context, tenantID string) (*model.CollectionSummaryResponse, error) {
 	openCount, err := s.caseRepo.CountByTenantIDAndStatus(ctx, tenantID, model.CaseStatusOpen)
 	if err != nil {
@@ -460,14 +515,78 @@ func (s *CollectionsService) GetSummary(ctx context.Context, tenantID string) (*
 		return nil, err
 	}
 
+	// Outstanding amounts
+	totalOutstanding, err := s.caseRepo.SumTotalOutstanding(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	stageAmounts, err := s.caseRepo.SumOutstandingByStage(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	// PTP and follow-up counts
+	pendingPtpCount, err := s.ptpRepo.CountPendingByTenantID(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	overdueFollowUpCount, err := s.actionRepo.CountOverdueFollowUps(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+
 	return &model.CollectionSummaryResponse{
-		TotalOpenCases:        openCount + inProgressCount + pendingLegalCount,
-		WatchCases:            watchCount,
-		SubstandardCases:      substandardCount,
-		DoubtfulCases:         doubtfulCount,
-		LossCases:             lossCount,
-		CriticalPriorityCases: criticalCount,
-		TenantID:              tenantID,
+		TotalOpenCases:         openCount + inProgressCount + pendingLegalCount,
+		WatchCases:             watchCount,
+		SubstandardCases:       substandardCount,
+		DoubtfulCases:          doubtfulCount,
+		LossCases:              lossCount,
+		CriticalPriorityCases:  criticalCount,
+		TotalOutstandingAmount: totalOutstanding,
+		WatchAmount:            stageAmounts["WATCH"],
+		SubstandardAmount:      stageAmounts["SUBSTANDARD"],
+		DoubtfulAmount:         stageAmounts["DOUBTFUL"],
+		LossAmount:             stageAmounts["LOSS"],
+		PendingPtpCount:        pendingPtpCount,
+		OverdueFollowUpCount:   overdueFollowUpCount,
+		TenantID:               tenantID,
+	}, nil
+}
+
+// GetCaseDetail returns a composite response with case, actions, and PTPs.
+func (s *CollectionsService) GetCaseDetail(ctx context.Context, id uuid.UUID, tenantID string) (*model.CollectionCaseDetailResponse, error) {
+	c, err := s.caseRepo.FindByTenantIDAndID(ctx, tenantID, id)
+	if err != nil {
+		return nil, fmt.Errorf("find case: %w", err)
+	}
+	if c == nil {
+		return nil, errors.NotFoundResource("Collection case", id)
+	}
+
+	actions, err := s.actionRepo.FindByCaseIDOrderByPerformedAtDesc(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("find actions: %w", err)
+	}
+
+	ptps, err := s.ptpRepo.FindByCaseIDOrderByCreatedAtDesc(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("find ptps: %w", err)
+	}
+
+	actionResponses := make([]model.CollectionActionResponse, len(actions))
+	for i, a := range actions {
+		actionResponses[i] = model.ToActionResponse(a)
+	}
+
+	ptpResponses := make([]model.PtpResponse, len(ptps))
+	for i, p := range ptps {
+		ptpResponses[i] = model.ToPtpResponse(p)
+	}
+
+	return &model.CollectionCaseDetailResponse{
+		Case:    model.ToCaseResponse(c),
+		Actions: actionResponses,
+		Ptps:    ptpResponses,
 	}, nil
 }
 

@@ -118,6 +118,130 @@ func (r *CollectionCaseRepository) CountByTenantIDAndPriority(ctx context.Contex
 	return count, err
 }
 
+// CaseFilters holds filter criteria for case queries.
+type CaseFilters struct {
+	Status     *string
+	Stage      *string
+	Priority   *string
+	AssignedTo *string
+	MinDPD     *int
+	MaxDPD     *int
+	Search     *string // ILIKE on case_number or customer_id
+}
+
+// FindByFilters returns cases matching the given filters with sorting and pagination.
+func (r *CollectionCaseRepository) FindByFilters(ctx context.Context, tenantID string, f CaseFilters, sort string, dir string, offset, limit int) ([]*model.CollectionCase, int64, error) {
+	where := "WHERE tenant_id=$1"
+	args := []any{tenantID}
+	argIdx := 2
+
+	if f.Status != nil {
+		where += fmt.Sprintf(" AND status=$%d", argIdx)
+		args = append(args, *f.Status)
+		argIdx++
+	}
+	if f.Stage != nil {
+		where += fmt.Sprintf(" AND current_stage=$%d", argIdx)
+		args = append(args, *f.Stage)
+		argIdx++
+	}
+	if f.Priority != nil {
+		where += fmt.Sprintf(" AND priority=$%d", argIdx)
+		args = append(args, *f.Priority)
+		argIdx++
+	}
+	if f.AssignedTo != nil {
+		where += fmt.Sprintf(" AND assigned_to=$%d", argIdx)
+		args = append(args, *f.AssignedTo)
+		argIdx++
+	}
+	if f.MinDPD != nil {
+		where += fmt.Sprintf(" AND current_dpd >= $%d", argIdx)
+		args = append(args, *f.MinDPD)
+		argIdx++
+	}
+	if f.MaxDPD != nil {
+		where += fmt.Sprintf(" AND current_dpd <= $%d", argIdx)
+		args = append(args, *f.MaxDPD)
+		argIdx++
+	}
+	if f.Search != nil {
+		where += fmt.Sprintf(" AND (case_number ILIKE $%d OR customer_id ILIKE $%d)", argIdx, argIdx)
+		args = append(args, "%"+*f.Search+"%")
+		argIdx++
+	}
+
+	// Validate sort column
+	allowedSorts := map[string]string{
+		"current_dpd":        "current_dpd",
+		"created_at":         "created_at",
+		"outstanding_amount": "outstanding_amount",
+		"current_stage":      "current_stage",
+		"priority":           "priority",
+	}
+	sortCol, ok := allowedSorts[sort]
+	if !ok {
+		sortCol = "current_dpd"
+	}
+	sortDir := "DESC"
+	if dir == "asc" || dir == "ASC" {
+		sortDir = "ASC"
+	}
+
+	// Count query
+	countQuery := "SELECT COUNT(*) FROM collection_cases " + where
+	var total int64
+	err := r.pool.QueryRow(ctx, countQuery, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("count filtered cases: %w", err)
+	}
+
+	// Data query
+	dataQuery := fmt.Sprintf("SELECT %s FROM collection_cases %s ORDER BY %s %s LIMIT $%d OFFSET $%d",
+		caseColumns, where, sortCol, sortDir, argIdx, argIdx+1)
+	args = append(args, limit, offset)
+
+	cases, err := r.scanMany(ctx, dataQuery, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	return cases, total, nil
+}
+
+// SumOutstandingByStage returns total outstanding amount grouped by stage for open cases.
+func (r *CollectionCaseRepository) SumOutstandingByStage(ctx context.Context, tenantID string) (map[string]decimal.Decimal, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT current_stage, COALESCE(SUM(outstanding_amount), 0)
+		FROM collection_cases
+		WHERE tenant_id=$1 AND status NOT IN ('CLOSED','WRITTEN_OFF')
+		GROUP BY current_stage`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("sum outstanding by stage: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]decimal.Decimal)
+	for rows.Next() {
+		var stage string
+		var amount decimal.Decimal
+		if err := rows.Scan(&stage, &amount); err != nil {
+			return nil, fmt.Errorf("scan stage amount: %w", err)
+		}
+		result[stage] = amount
+	}
+	return result, rows.Err()
+}
+
+// SumTotalOutstanding returns total outstanding amount for all open cases.
+func (r *CollectionCaseRepository) SumTotalOutstanding(ctx context.Context, tenantID string) (decimal.Decimal, error) {
+	var amount decimal.Decimal
+	err := r.pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(outstanding_amount), 0)
+		FROM collection_cases
+		WHERE tenant_id=$1 AND status NOT IN ('CLOSED','WRITTEN_OFF')`, tenantID).Scan(&amount)
+	return amount, err
+}
+
 const caseColumns = `id, tenant_id, loan_id, customer_id, case_number, status, priority,
 	current_dpd, current_stage, outstanding_amount, assigned_to, opened_at,
 	closed_at, last_action_at, notes, created_at, updated_at`
@@ -212,6 +336,25 @@ func (r *CollectionActionRepository) Save(ctx context.Context, a *model.Collecti
 	return a, nil
 }
 
+// CountOverdueFollowUps counts cases where the latest action's next_action_date is overdue.
+func (r *CollectionActionRepository) CountOverdueFollowUps(ctx context.Context, tenantID string) (int64, error) {
+	var count int64
+	err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(DISTINCT a.case_id)
+		FROM collection_actions a
+		JOIN collection_cases c ON a.case_id = c.id
+		WHERE c.tenant_id=$1
+		  AND c.status NOT IN ('CLOSED','WRITTEN_OFF')
+		  AND a.next_action_date < CURRENT_DATE
+		  AND a.id = (
+		    SELECT id FROM collection_actions
+		    WHERE case_id = a.case_id
+		    ORDER BY performed_at DESC
+		    LIMIT 1
+		  )`, tenantID).Scan(&count)
+	return count, err
+}
+
 func (r *CollectionActionRepository) FindByCaseIDOrderByPerformedAtDesc(ctx context.Context, caseID uuid.UUID) ([]*model.CollectionAction, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT id, tenant_id, case_id, action_type, outcome, notes,
@@ -294,6 +437,17 @@ func (r *PtpRepository) Save(ctx context.Context, p *model.PromiseToPay) (*model
 		return nil, fmt.Errorf("update ptp: %w", err)
 	}
 	return p, nil
+}
+
+// CountPendingByTenantID counts pending PTPs for a given tenant.
+func (r *PtpRepository) CountPendingByTenantID(ctx context.Context, tenantID string) (int64, error) {
+	var count int64
+	err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM promises_to_pay p
+		JOIN collection_cases c ON p.case_id = c.id
+		WHERE c.tenant_id=$1 AND p.status='PENDING'`, tenantID).Scan(&count)
+	return count, err
 }
 
 func (r *PtpRepository) FindByCaseIDOrderByCreatedAtDesc(ctx context.Context, caseID uuid.UUID) ([]*model.PromiseToPay, error) {
