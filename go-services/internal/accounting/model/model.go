@@ -45,9 +45,11 @@ var ValidBalanceTypes = map[BalanceType]bool{
 type EntryStatus string
 
 const (
-	EntryStatusDraft    EntryStatus = "DRAFT"
-	EntryStatusPosted   EntryStatus = "POSTED"
-	EntryStatusReversed EntryStatus = "REVERSED"
+	EntryStatusDraft           EntryStatus = "DRAFT"
+	EntryStatusPendingApproval EntryStatus = "PENDING_APPROVAL"
+	EntryStatusPosted          EntryStatus = "POSTED"
+	EntryStatusRejected        EntryStatus = "REJECTED"
+	EntryStatusReversed        EntryStatus = "REVERSED"
 )
 
 // ChartOfAccount represents a GL account in the chart of accounts.
@@ -77,10 +79,20 @@ type JournalEntry struct {
 	SourceID    *string         `json:"sourceId,omitempty"`
 	TotalDebit  decimal.Decimal `json:"totalDebit"`
 	TotalCredit decimal.Decimal `json:"totalCredit"`
-	PostedBy    *string         `json:"postedBy,omitempty"`
-	CreatedAt   time.Time       `json:"createdAt"`
-	UpdatedAt   time.Time       `json:"updatedAt"`
-	Lines       []JournalLine   `json:"lines,omitempty"`
+	PostedBy          *string         `json:"postedBy,omitempty"`
+	EntryNumber       int             `json:"entryNumber"`
+	CreatedBy         *string         `json:"createdBy,omitempty"`
+	ApprovedBy        *string         `json:"approvedBy,omitempty"`
+	ApprovedAt        *time.Time      `json:"approvedAt,omitempty"`
+	RejectionReason   *string         `json:"rejectionReason,omitempty"`
+	ReversedBy        *string         `json:"reversedBy,omitempty"`
+	ReversedAt        *time.Time      `json:"reversedAt,omitempty"`
+	ReversalReason    *string         `json:"reversalReason,omitempty"`
+	OriginalEntryID   *uuid.UUID      `json:"originalEntryId,omitempty"`
+	IsSystemGenerated bool            `json:"isSystemGenerated"`
+	CreatedAt         time.Time       `json:"createdAt"`
+	UpdatedAt         time.Time       `json:"updatedAt"`
+	Lines             []JournalLine   `json:"lines,omitempty"`
 }
 
 // JournalLine represents a single debit or credit line in a journal entry.
@@ -195,9 +207,19 @@ type JournalEntryResponse struct {
 	SourceID    *string                `json:"sourceId,omitempty"`
 	TotalDebit  decimal.Decimal        `json:"totalDebit"`
 	TotalCredit decimal.Decimal        `json:"totalCredit"`
-	PostedBy    *string                `json:"postedBy,omitempty"`
-	CreatedAt   time.Time              `json:"createdAt"`
-	Lines       []JournalLineResponse  `json:"lines"`
+	PostedBy          *string                `json:"postedBy,omitempty"`
+	EntryNumber       int                    `json:"entryNumber"`
+	CreatedBy         *string                `json:"createdBy,omitempty"`
+	ApprovedBy        *string                `json:"approvedBy,omitempty"`
+	ApprovedAt        *time.Time             `json:"approvedAt,omitempty"`
+	RejectionReason   *string                `json:"rejectionReason,omitempty"`
+	ReversedBy        *string                `json:"reversedBy,omitempty"`
+	ReversedAt        *time.Time             `json:"reversedAt,omitempty"`
+	ReversalReason    *string                `json:"reversalReason,omitempty"`
+	OriginalEntryID   *uuid.UUID             `json:"originalEntryId,omitempty"`
+	IsSystemGenerated bool                   `json:"isSystemGenerated"`
+	CreatedAt         time.Time              `json:"createdAt"`
+	Lines             []JournalLineResponse  `json:"lines"`
 }
 
 // TrialBalanceResponse is the response for a trial balance report.
@@ -246,18 +268,102 @@ func ToJournalEntryResponse(e *JournalEntry) JournalEntryResponse {
 		lines = append(lines, ToJournalLineResponse(&e.Lines[i]))
 	}
 	return JournalEntryResponse{
-		ID:          e.ID,
-		TenantID:    e.TenantID,
-		Reference:   e.Reference,
-		Description: e.Description,
-		EntryDate:   e.EntryDate.Format("2006-01-02"),
-		Status:      e.Status,
-		SourceEvent: e.SourceEvent,
-		SourceID:    e.SourceID,
-		TotalDebit:  e.TotalDebit,
-		TotalCredit: e.TotalCredit,
-		PostedBy:    e.PostedBy,
-		CreatedAt:   e.CreatedAt,
-		Lines:       lines,
+		ID:                e.ID,
+		TenantID:          e.TenantID,
+		Reference:         e.Reference,
+		Description:       e.Description,
+		EntryDate:         e.EntryDate.Format("2006-01-02"),
+		Status:            e.Status,
+		SourceEvent:       e.SourceEvent,
+		SourceID:          e.SourceID,
+		TotalDebit:        e.TotalDebit,
+		TotalCredit:       e.TotalCredit,
+		PostedBy:          e.PostedBy,
+		EntryNumber:       e.EntryNumber,
+		CreatedBy:         e.CreatedBy,
+		ApprovedBy:        e.ApprovedBy,
+		ApprovedAt:        e.ApprovedAt,
+		RejectionReason:   e.RejectionReason,
+		ReversedBy:        e.ReversedBy,
+		ReversedAt:        e.ReversedAt,
+		ReversalReason:    e.ReversalReason,
+		OriginalEntryID:   e.OriginalEntryID,
+		IsSystemGenerated: e.IsSystemGenerated,
+		CreatedAt:         e.CreatedAt,
+		Lines:             lines,
 	}
+}
+
+// RejectEntryRequest is the request body for rejecting a journal entry.
+type RejectEntryRequest struct {
+	Reason string `json:"reason"`
+}
+
+// ReverseEntryRequest is the request body for reversing a journal entry.
+type ReverseEntryRequest struct {
+	Reason string `json:"reason"`
+}
+
+// PeriodStatus represents the lifecycle state of a fiscal period.
+type PeriodStatus string
+
+const (
+	PeriodStatusOpen       PeriodStatus = "OPEN"
+	PeriodStatusSoftClosed PeriodStatus = "SOFT_CLOSED"
+	PeriodStatusClosed     PeriodStatus = "CLOSED"
+)
+
+// FiscalPeriod represents a fiscal period for a tenant.
+type FiscalPeriod struct {
+	ID           uuid.UUID    `json:"id"`
+	TenantID     string       `json:"tenantId"`
+	PeriodYear   int          `json:"periodYear"`
+	PeriodMonth  int          `json:"periodMonth"`
+	Status       PeriodStatus `json:"status"`
+	ClosedBy     *string      `json:"closedBy,omitempty"`
+	ClosedAt     *time.Time   `json:"closedAt,omitempty"`
+	ReopenedBy   *string      `json:"reopenedBy,omitempty"`
+	ReopenReason *string      `json:"reopenReason,omitempty"`
+	CreatedAt    time.Time    `json:"createdAt"`
+	UpdatedAt    time.Time    `json:"updatedAt"`
+}
+
+// ReopenPeriodRequest is the request body for reopening a fiscal period.
+type ReopenPeriodRequest struct {
+	Reason string `json:"reason"`
+}
+
+// FinancialAuditLog represents an audit log entry.
+type FinancialAuditLog struct {
+	ID         uuid.UUID `json:"id"`
+	TenantID   string    `json:"tenantId"`
+	Action     string    `json:"action"`
+	EntityType string    `json:"entityType"`
+	EntityID   string    `json:"entityId"`
+	UserID     *string   `json:"userId,omitempty"`
+	UserRole   *string   `json:"userRole,omitempty"`
+	Details    any       `json:"details,omitempty"`
+	IPAddress  *string   `json:"ipAddress,omitempty"`
+	CreatedAt  time.Time `json:"createdAt"`
+}
+
+// CashFlowResponse is the response for a cash flow statement.
+type CashFlowResponse struct {
+	PeriodYear     int             `json:"periodYear"`
+	PeriodMonth    int             `json:"periodMonth"`
+	OperatingItems []CashFlowItem  `json:"operatingItems"`
+	InvestingItems []CashFlowItem  `json:"investingItems"`
+	FinancingItems []CashFlowItem  `json:"financingItems"`
+	TotalOperating decimal.Decimal `json:"totalOperating"`
+	TotalInvesting decimal.Decimal `json:"totalInvesting"`
+	TotalFinancing decimal.Decimal `json:"totalFinancing"`
+	NetCashFlow    decimal.Decimal `json:"netCashFlow"`
+	OpeningCash    decimal.Decimal `json:"openingCash"`
+	ClosingCash    decimal.Decimal `json:"closingCash"`
+}
+
+// CashFlowItem is a line item in the cash flow statement.
+type CashFlowItem struct {
+	Description string          `json:"description"`
+	Amount      decimal.Decimal `json:"amount"`
 }

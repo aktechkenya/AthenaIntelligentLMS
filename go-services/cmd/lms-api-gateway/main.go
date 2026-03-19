@@ -363,12 +363,24 @@ func (gw *Gateway) RegisterRoutes(r chi.Router, authMw *auth.Middleware) {
 		}
 	}
 
+	// registerRoute registers both the wildcard and exact-prefix patterns for a route,
+	// so that /lms/api/v1/products and /lms/api/v1/products/ both match.
+	registerRoute := func(r chi.Router, route RouteConfig, proxy *httputil.ReverseProxy, cb *CircuitBreaker) {
+		handler := gw.proxyHandler(proxy, cb, route)
+		r.HandleFunc(route.PathPrefix+"*", handler)
+		// Also register without trailing wildcard (e.g., /lms/api/v1/products)
+		bare := strings.TrimRight(route.PathPrefix, "/")
+		if bare != route.PathPrefix {
+			r.HandleFunc(bare, handler)
+		}
+	}
+
 	// Public routes — no JWT required
 	for _, route := range publicRoutes {
 		route := route
 		proxy := gw.newReverseProxy(route.TargetURL, route.ID)
 		cb := gw.circuitBreakers[route.ID]
-		r.HandleFunc(route.PathPrefix+"*", gw.proxyHandler(proxy, cb, route))
+		registerRoute(r, route, proxy, cb)
 		gw.logger.Info("Registered public route",
 			zap.String("id", route.ID),
 			zap.String("prefix", route.PathPrefix),
@@ -383,7 +395,7 @@ func (gw *Gateway) RegisterRoutes(r chi.Router, authMw *auth.Middleware) {
 			route := route
 			proxy := gw.newReverseProxy(route.TargetURL, route.ID)
 			cb := gw.circuitBreakers[route.ID]
-			r.HandleFunc(route.PathPrefix+"*", gw.proxyHandler(proxy, cb, route))
+			registerRoute(r, route, proxy, cb)
 			gw.logger.Info("Registered protected route",
 				zap.String("id", route.ID),
 				zap.String("prefix", route.PathPrefix),

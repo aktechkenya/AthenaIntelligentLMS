@@ -64,6 +64,8 @@ func Load(serviceName string) (*Config, error) {
 	v.SetDefault("RABBITMQ_VHOST", "/")
 	v.SetDefault("RABBITMQ_CONSUME_ENABLED", true)
 	v.SetDefault("MIGRATE_ON_STARTUP", true)
+	v.SetDefault("JWT_SECRET", "")
+	v.SetDefault("LMS_INTERNAL_SERVICE_KEY", "")
 
 	cfg := &Config{}
 	if err := v.Unmarshal(cfg); err != nil {
