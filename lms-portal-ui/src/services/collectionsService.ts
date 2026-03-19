@@ -119,6 +119,36 @@ export interface UpdateCaseRequest {
   notes?: string;
 }
 
+// --- Phase 4: Analytics interfaces ---
+
+export interface DashboardAnalytics {
+  recoveryRate: number;
+  totalRecovered: number;
+  totalOutstanding: number;
+  ageingByStage: { stage: string; count: number; amount: number }[];
+  newCases: number;
+  closedCases: number;
+  avgDPD: number;
+  ptpFulfilmentRate: number;
+}
+
+export interface OfficerPerformance {
+  username: string;
+  activeCases: number;
+  actionsCount: number;
+  ptpsCreated: number;
+  ptpsFulfilled: number;
+  casesClosed: number;
+  avgResolutionDays: number;
+}
+
+export interface AgeingBucket {
+  bucket: string;
+  count: number;
+  amount: number;
+  productType?: string;
+}
+
 const BASE = "/proxy/collections/api/v1/collections";
 
 export const collectionsService = {
@@ -215,5 +245,32 @@ export const collectionsService = {
   async deleteStrategy(id: string): Promise<void> {
     const r = await apiDelete(`${BASE}/strategies/${id}`);
     if (r.error) throw new Error(r.error ?? "Failed to delete strategy");
+  },
+
+  // Analytics
+  async getDashboardAnalytics(from?: string, to?: string): Promise<DashboardAnalytics> {
+    const q = new URLSearchParams();
+    if (from) q.set("from", from);
+    if (to) q.set("to", to);
+    const qs = q.toString();
+    const r = await apiGet<DashboardAnalytics>(`${BASE}/analytics/dashboard${qs ? `?${qs}` : ""}`);
+    if (r.error || !r.data) throw new Error(r.error ?? "Failed to get dashboard analytics");
+    return r.data;
+  },
+
+  async getOfficerPerformance(from?: string, to?: string): Promise<OfficerPerformance[]> {
+    const q = new URLSearchParams();
+    if (from) q.set("from", from);
+    if (to) q.set("to", to);
+    const qs = q.toString();
+    const r = await apiGet<OfficerPerformance[]>(`${BASE}/analytics/officer-performance${qs ? `?${qs}` : ""}`);
+    if (r.error || !r.data) throw new Error(r.error ?? "Failed to get officer performance");
+    return r.data;
+  },
+
+  async getAgeingReport(): Promise<AgeingBucket[]> {
+    const r = await apiGet<AgeingBucket[]>(`${BASE}/analytics/ageing`);
+    if (r.error || !r.data) throw new Error(r.error ?? "Failed to get ageing report");
+    return r.data;
   },
 };

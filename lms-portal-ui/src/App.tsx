@@ -52,6 +52,7 @@ import NotificationsPage from "./pages/NotificationsPage";
 import LegalPage from "./pages/LegalPage";
 import CaseDetailPage from "./pages/CaseDetailPage";
 import CollectionStrategiesPage from "./pages/CollectionStrategiesPage";
+import CollectionsAnalyticsPage from "./pages/CollectionsAnalyticsPage";
 import RepaymentsPage from "./pages/RepaymentsPage";
 import ModificationsPage from "./pages/ModificationsPage";
 import KYBPage from "./pages/KYBPage";
@@ -130,6 +131,7 @@ const AppRoutes = () => (
       <Route path="/collections-workbench" element={<P><CollectionsWorkbenchPage /></P>} />
       <Route path="/collections/case/:id" element={<P><CaseDetailPage /></P>} />
       <Route path="/collections/strategies" element={<P><CollectionStrategiesPage /></P>} />
+      <Route path="/collections/analytics" element={<P><CollectionsAnalyticsPage /></P>} />
       <Route path="/income-statement" element={<P><IncomeStatementPage /></P>} />
       <Route path="/balance-sheet" element={<P><BalanceSheetPage /></P>} />
       <Route path="/trial-balance" element={<P><TrialBalancePage /></P>} />

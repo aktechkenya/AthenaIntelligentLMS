@@ -105,6 +105,7 @@ const collectionsNav = [
   { title: "Collections Workbench", url: "/collections-workbench", icon: Phone },
   { title: "Legal & Write-Offs", url: "/legal", icon: Scale },
   { title: "Strategies", url: "/collections/strategies", icon: Settings },
+  { title: "Analytics", url: "/collections/analytics", icon: BarChart3 },
 ];
 
 const financeNav = [
