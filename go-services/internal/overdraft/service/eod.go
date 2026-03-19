@@ -194,7 +194,8 @@ func (s *EODService) accrueInterest(ctx context.Context, f *model.OverdraftFacil
 	}
 
 	// Daily rate = annual rate / 365
-	dailyRate := f.InterestRate.Div(decimal.NewFromInt(100)).Div(daysInYear)
+	// InterestRate is stored as decimal (e.g. 0.15 = 15% p.a.)
+	dailyRate := f.InterestRate.Div(daysInYear)
 	interestAmount := f.DrawnPrincipal.Mul(dailyRate).Round(4)
 
 	if interestAmount.LessThanOrEqual(decimal.Zero) {
