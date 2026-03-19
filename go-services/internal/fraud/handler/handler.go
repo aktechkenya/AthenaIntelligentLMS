@@ -37,19 +37,33 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Get("/alerts/{id}", h.GetAlert)
 		r.Post("/alerts/{id}/resolve", h.ResolveAlert)
 		r.Post("/alerts/{id}/assign", h.AssignAlert)
+		r.Post("/alerts/bulk/assign", h.BulkAssignAlerts)
+		r.Post("/alerts/bulk/resolve", h.BulkResolveAlerts)
 
 		r.Get("/rules", h.ListRules)
 		r.Get("/rules/{id}", h.GetRule)
 		r.Put("/rules/{id}", h.UpdateRule)
 
 		r.Get("/cases", h.ListCases)
+		r.Post("/cases", h.CreateCase)
 		r.Get("/cases/{id}", h.GetCase)
+		r.Put("/cases/{id}", h.UpdateCase)
 		r.Get("/cases/{id}/notes", h.ListCaseNotes)
 		r.Post("/cases/{id}/notes", h.AddCaseNote)
+		r.Get("/cases/{id}/timeline", h.GetCaseTimeline)
 
 		r.Get("/watchlist", h.ListWatchlistEntries)
 		r.Post("/watchlist", h.CreateWatchlistEntry)
 		r.Get("/watchlist/{id}", h.GetWatchlistEntry)
+		r.Put("/watchlist/{id}/deactivate", h.DeactivateWatchlistEntry)
+		r.Post("/watchlist/screen", h.ScreenCustomer)
+
+		r.Get("/events/recent", h.ListRecentEvents)
+
+		r.Get("/sar-reports", h.ListSarReports)
+		r.Post("/sar-reports", h.CreateSarReport)
+		r.Get("/sar-reports/{id}", h.GetSarReport)
+		r.Put("/sar-reports/{id}", h.UpdateSarReport)
 
 		r.Get("/risk-profiles/high-risk", h.ListHighRiskCustomers)
 		r.Get("/risk-profiles/{customerId}", h.GetRiskProfile)
@@ -484,6 +498,283 @@ func (h *Handler) ListNetworkLinks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, links)
+}
+
+// BulkAssignAlerts handles POST /api/v1/fraud/alerts/bulk/assign
+func (h *Handler) BulkAssignAlerts(w http.ResponseWriter, r *http.Request) {
+	var req model.BulkAlertActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+
+	count, err := h.svc.BulkAssignAlerts(r.Context(), req)
+	if err != nil {
+		h.logger.Error("Failed to bulk assign alerts", zap.Error(err))
+		httputil.WriteInternalError(w, "Failed to bulk assign alerts", r.URL.Path)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, map[string]interface{}{"assigned": count})
+}
+
+// BulkResolveAlerts handles POST /api/v1/fraud/alerts/bulk/resolve
+func (h *Handler) BulkResolveAlerts(w http.ResponseWriter, r *http.Request) {
+	var req model.BulkAlertActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+
+	count, err := h.svc.BulkResolveAlerts(r.Context(), req)
+	if err != nil {
+		h.logger.Error("Failed to bulk resolve alerts", zap.Error(err))
+		httputil.WriteInternalError(w, "Failed to bulk resolve alerts", r.URL.Path)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, map[string]interface{}{"resolved": count})
+}
+
+// CreateCase handles POST /api/v1/fraud/cases
+func (h *Handler) CreateCase(w http.ResponseWriter, r *http.Request) {
+	var req model.CreateCaseRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	fraudCase, err := h.svc.CreateCase(r.Context(), req, tenantID)
+	if err != nil {
+		h.logger.Error("Failed to create case", zap.Error(err))
+		httputil.WriteInternalError(w, "Failed to create case", r.URL.Path)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusCreated, fraudCase)
+}
+
+// UpdateCase handles PUT /api/v1/fraud/cases/{id}
+func (h *Handler) UpdateCase(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid case ID", r.URL.Path)
+		return
+	}
+
+	var req model.UpdateCaseRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+
+	fraudCase, err := h.svc.UpdateCase(r.Context(), id, req)
+	if err != nil {
+		h.logger.Error("Failed to update case", zap.Error(err))
+		httputil.WriteInternalError(w, "Failed to update case", r.URL.Path)
+		return
+	}
+	if fraudCase == nil {
+		httputil.WriteNotFound(w, "Case not found: "+id.String(), r.URL.Path)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, fraudCase)
+}
+
+// GetCaseTimeline handles GET /api/v1/fraud/cases/{id}/timeline
+func (h *Handler) GetCaseTimeline(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid case ID", r.URL.Path)
+		return
+	}
+
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	timeline, err := h.svc.GetCaseTimeline(r.Context(), id, tenantID)
+	if err != nil {
+		h.logger.Error("Failed to get case timeline", zap.Error(err))
+		httputil.WriteInternalError(w, "Failed to get case timeline", r.URL.Path)
+		return
+	}
+	if timeline == nil {
+		httputil.WriteNotFound(w, "Case not found: "+id.String(), r.URL.Path)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, timeline)
+}
+
+// DeactivateWatchlistEntry handles PUT /api/v1/fraud/watchlist/{id}/deactivate
+func (h *Handler) DeactivateWatchlistEntry(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid watchlist entry ID", r.URL.Path)
+		return
+	}
+
+	entry, err := h.svc.DeactivateWatchlistEntry(r.Context(), id)
+	if err != nil {
+		h.logger.Error("Failed to deactivate watchlist entry", zap.Error(err))
+		httputil.WriteInternalError(w, "Failed to deactivate watchlist entry", r.URL.Path)
+		return
+	}
+	if entry == nil {
+		httputil.WriteNotFound(w, "Watchlist entry not found: "+id.String(), r.URL.Path)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, entry)
+}
+
+// ScreenCustomer handles POST /api/v1/fraud/watchlist/screen
+func (h *Handler) ScreenCustomer(w http.ResponseWriter, r *http.Request) {
+	var req model.ScreenCustomerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	matches, err := h.svc.ScreenCustomer(r.Context(), tenantID, req)
+	if err != nil {
+		h.logger.Error("Failed to screen customer", zap.Error(err))
+		httputil.WriteInternalError(w, "Failed to screen customer", r.URL.Path)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"matches":    matches,
+		"matchCount": len(matches),
+	})
+}
+
+// ListRecentEvents handles GET /api/v1/fraud/events/recent
+func (h *Handler) ListRecentEvents(w http.ResponseWriter, r *http.Request) {
+	tenantID := auth.TenantIDOrDefault(r.Context())
+
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
+	if size <= 0 {
+		size = 20
+	}
+
+	events, total, err := h.svc.ListRecentEvents(r.Context(), tenantID, page, size)
+	if err != nil {
+		h.logger.Error("Failed to list recent events", zap.Error(err))
+		httputil.WriteInternalError(w, "Failed to list recent events", r.URL.Path)
+		return
+	}
+	if events == nil {
+		events = []*model.FraudEvent{}
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, dto.NewPageResponse(events, page, size, total))
+}
+
+// ListSarReports handles GET /api/v1/fraud/sar-reports
+func (h *Handler) ListSarReports(w http.ResponseWriter, r *http.Request) {
+	tenantID := auth.TenantIDOrDefault(r.Context())
+
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
+	if size <= 0 {
+		size = 20
+	}
+
+	var status *model.SarStatus
+	if s := r.URL.Query().Get("status"); s != "" {
+		st := model.SarStatus(s)
+		status = &st
+	}
+
+	var reportType *model.SarReportType
+	if rt := r.URL.Query().Get("reportType"); rt != "" {
+		t := model.SarReportType(rt)
+		reportType = &t
+	}
+
+	reports, total, err := h.svc.ListSarReports(r.Context(), tenantID, status, reportType, page, size)
+	if err != nil {
+		h.logger.Error("Failed to list SAR reports", zap.Error(err))
+		httputil.WriteInternalError(w, "Failed to list SAR reports", r.URL.Path)
+		return
+	}
+	if reports == nil {
+		reports = []*model.SarReport{}
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, dto.NewPageResponse(reports, page, size, total))
+}
+
+// CreateSarReport handles POST /api/v1/fraud/sar-reports
+func (h *Handler) CreateSarReport(w http.ResponseWriter, r *http.Request) {
+	var req model.CreateSarReportRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	report, err := h.svc.CreateSarReport(r.Context(), req, tenantID)
+	if err != nil {
+		h.logger.Error("Failed to create SAR report", zap.Error(err))
+		httputil.WriteInternalError(w, "Failed to create SAR report", r.URL.Path)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusCreated, report)
+}
+
+// GetSarReport handles GET /api/v1/fraud/sar-reports/{id}
+func (h *Handler) GetSarReport(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid SAR report ID", r.URL.Path)
+		return
+	}
+
+	report, err := h.svc.GetSarReport(r.Context(), id)
+	if err != nil {
+		h.logger.Error("Failed to get SAR report", zap.Error(err))
+		httputil.WriteInternalError(w, "Failed to get SAR report", r.URL.Path)
+		return
+	}
+	if report == nil {
+		httputil.WriteNotFound(w, "SAR report not found: "+id.String(), r.URL.Path)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, report)
+}
+
+// UpdateSarReport handles PUT /api/v1/fraud/sar-reports/{id}
+func (h *Handler) UpdateSarReport(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid SAR report ID", r.URL.Path)
+		return
+	}
+
+	var req model.UpdateSarReportRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+
+	report, err := h.svc.UpdateSarReport(r.Context(), id, req)
+	if err != nil {
+		h.logger.Error("Failed to update SAR report", zap.Error(err))
+		httputil.WriteInternalError(w, "Failed to update SAR report", r.URL.Path)
+		return
+	}
+	if report == nil {
+		httputil.WriteNotFound(w, "SAR report not found: "+id.String(), r.URL.Path)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, report)
 }
 
 // ListAuditLog handles GET /api/v1/fraud/audit

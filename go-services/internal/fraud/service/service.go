@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -351,6 +353,298 @@ func (s *Service) ListAuditLog(ctx context.Context, tenantID string, entityType 
 // ListNetworkLinks returns network links for a customer.
 func (s *Service) ListNetworkLinks(ctx context.Context, tenantID, customerID string) ([]*model.NetworkLink, error) {
 	return s.repo.FindLinksByCustomer(ctx, tenantID, customerID)
+}
+
+// BulkAssignAlerts assigns multiple alerts to a user.
+func (s *Service) BulkAssignAlerts(ctx context.Context, req model.BulkAlertActionRequest) (int, error) {
+	count := 0
+	for _, id := range req.AlertIDs {
+		alert, err := s.repo.GetAlert(ctx, id)
+		if err != nil || alert == nil {
+			continue
+		}
+		alert.AssignedTo = &req.PerformedBy
+		alert.Status = model.StatusUnderReview
+		alert.UpdatedAt = time.Now()
+		if err := s.repo.UpdateAlert(ctx, alert); err != nil {
+			continue
+		}
+		count++
+	}
+	return count, nil
+}
+
+// BulkResolveAlerts resolves multiple alerts.
+func (s *Service) BulkResolveAlerts(ctx context.Context, req model.BulkAlertActionRequest) (int, error) {
+	count := 0
+	now := time.Now()
+	for _, id := range req.AlertIDs {
+		alert, err := s.repo.GetAlert(ctx, id)
+		if err != nil || alert == nil {
+			continue
+		}
+		alert.ResolvedBy = &req.PerformedBy
+		alert.ResolvedAt = &now
+		alert.ResolutionNotes = &req.Notes
+		alert.Status = model.StatusFalsePositive
+		resolution := "FALSE_POSITIVE"
+		alert.Resolution = &resolution
+		alert.UpdatedAt = now
+		if err := s.repo.UpdateAlert(ctx, alert); err != nil {
+			continue
+		}
+		count++
+	}
+	return count, nil
+}
+
+// CreateCase creates a new fraud investigation case.
+func (s *Service) CreateCase(ctx context.Context, req model.CreateCaseRequest, tenantID string) (*model.FraudCase, error) {
+	maxNum, _ := s.repo.FindMaxCaseNumber(ctx, tenantID)
+	caseNumber := fmt.Sprintf("FRC-%04d", maxNum+1)
+
+	customerID := req.CustomerID
+	assignedTo := req.AssignedTo
+	tagsJSON, _ := json.Marshal(req.Tags)
+
+	fraudCase := &model.FraudCase{
+		TenantID:      tenantID,
+		CaseNumber:    caseNumber,
+		Title:         req.Title,
+		Description:   &req.Description,
+		Status:        model.CaseOpen,
+		Priority:      model.AlertSeverity(req.Priority),
+		CustomerID:    &customerID,
+		AssignedTo:    &assignedTo,
+		TotalExposure: req.TotalExposure,
+		Tags:          tagsJSON,
+		AlertIDs:      req.AlertIDs,
+	}
+
+	if err := s.repo.CreateCase(ctx, fraudCase); err != nil {
+		return nil, err
+	}
+
+	return fraudCase, nil
+}
+
+// UpdateCase updates an existing fraud case.
+func (s *Service) UpdateCase(ctx context.Context, id uuid.UUID, req model.UpdateCaseRequest) (*model.FraudCase, error) {
+	fraudCase, err := s.repo.GetCase(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if fraudCase == nil {
+		return nil, nil
+	}
+
+	if req.Status != nil {
+		fraudCase.Status = model.CaseStatus(*req.Status)
+	}
+	if req.Priority != nil {
+		fraudCase.Priority = model.AlertSeverity(*req.Priority)
+	}
+	if req.AssignedTo != nil {
+		fraudCase.AssignedTo = req.AssignedTo
+	}
+	if req.TotalExposure != nil {
+		fraudCase.TotalExposure = req.TotalExposure
+	}
+	if req.ConfirmedLoss != nil {
+		fraudCase.ConfirmedLoss = *req.ConfirmedLoss
+	}
+	if req.Tags != nil {
+		tagsJSON, _ := json.Marshal(req.Tags)
+		fraudCase.Tags = tagsJSON
+	}
+	if req.Outcome != nil {
+		fraudCase.Outcome = req.Outcome
+	}
+	if req.ClosedBy != nil {
+		fraudCase.ClosedBy = req.ClosedBy
+		now := time.Now()
+		fraudCase.ClosedAt = &now
+	}
+
+	if err := s.repo.UpdateCase(ctx, fraudCase); err != nil {
+		return nil, err
+	}
+
+	return fraudCase, nil
+}
+
+// GetCaseTimeline returns the timeline for a case from audit logs and notes.
+func (s *Service) GetCaseTimeline(ctx context.Context, caseID uuid.UUID, tenantID string) (*model.CaseTimelineResponse, error) {
+	fraudCase, err := s.repo.GetCase(ctx, caseID)
+	if err != nil {
+		return nil, err
+	}
+	if fraudCase == nil {
+		return nil, nil
+	}
+
+	entityType := "CASE"
+	logs, err := s.repo.ListAuditLogForEntityAsc(ctx, tenantID, entityType, caseID)
+	if err != nil {
+		logs = nil
+	}
+
+	var events []model.TimelineEvent
+
+	// Add case creation event
+	events = append(events, model.TimelineEvent{
+		Action:      "CREATED",
+		Description: "Case created: " + fraudCase.Title,
+		PerformedBy: "system",
+		Timestamp:   fraudCase.CreatedAt,
+	})
+
+	// Add audit log events
+	for _, log := range logs {
+		desc := ""
+		if log.Description != nil {
+			desc = *log.Description
+		}
+		events = append(events, model.TimelineEvent{
+			Action:      log.Action,
+			Description: desc,
+			PerformedBy: log.PerformedBy,
+			Timestamp:   log.CreatedAt,
+		})
+	}
+
+	// Add notes as events
+	notes, _ := s.repo.ListCaseNotes(ctx, caseID, tenantID)
+	for _, note := range notes {
+		events = append(events, model.TimelineEvent{
+			Action:      "NOTE_ADDED",
+			Description: note.Content,
+			PerformedBy: note.Author,
+			Timestamp:   note.CreatedAt,
+		})
+	}
+
+	return &model.CaseTimelineResponse{
+		CaseID:     caseID,
+		CaseNumber: fraudCase.CaseNumber,
+		Events:     events,
+	}, nil
+}
+
+// DeactivateWatchlistEntry deactivates a watchlist entry.
+func (s *Service) DeactivateWatchlistEntry(ctx context.Context, id uuid.UUID) (*model.WatchlistEntry, error) {
+	entry, err := s.repo.GetWatchlistEntry(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if entry == nil {
+		return nil, nil
+	}
+
+	entry.Active = false
+	if err := s.repo.UpdateWatchlistEntry(ctx, entry); err != nil {
+		return nil, err
+	}
+
+	return entry, nil
+}
+
+// ScreenCustomer screens a customer against active watchlist entries.
+func (s *Service) ScreenCustomer(ctx context.Context, tenantID string, req model.ScreenCustomerRequest) ([]*model.WatchlistEntry, error) {
+	return s.repo.FindWatchlistMatches(ctx, tenantID, req.NationalID, req.Name, req.Phone)
+}
+
+// ListRecentEvents returns paginated recent fraud events.
+func (s *Service) ListRecentEvents(ctx context.Context, tenantID string, page, size int) ([]*model.FraudEvent, int64, error) {
+	return s.repo.ListRecentEvents(ctx, tenantID, page, size)
+}
+
+// CreateSarReport creates a new SAR/CTR report.
+func (s *Service) CreateSarReport(ctx context.Context, req model.CreateSarReportRequest, tenantID string) (*model.SarReport, error) {
+	maxNum, _ := s.repo.FindMaxReportNumber(ctx, tenantID)
+	reportNumber := fmt.Sprintf("SAR-%04d", maxNum+1)
+
+	report := &model.SarReport{
+		TenantID:          tenantID,
+		ReportNumber:      reportNumber,
+		ReportType:        model.SarReportType(req.ReportType),
+		Status:            model.SarDraft,
+		SubjectCustomerID: strPtr(req.SubjectCustomerID),
+		SubjectName:       strPtr(req.SubjectName),
+		SubjectNationalID: strPtr(req.SubjectNationalID),
+		Narrative:         strPtr(req.Narrative),
+		SuspiciousAmount:  req.SuspiciousAmount,
+		ActivityStartDate: req.ActivityStartDate,
+		ActivityEndDate:   req.ActivityEndDate,
+		CaseID:            req.CaseID,
+		PreparedBy:        strPtr(req.PreparedBy),
+		Regulator:         "FRC",
+		AlertIDs:          req.AlertIDs,
+	}
+
+	if err := s.repo.CreateSarReport(ctx, report); err != nil {
+		return nil, err
+	}
+
+	return report, nil
+}
+
+// GetSarReport returns a single SAR report by ID.
+func (s *Service) GetSarReport(ctx context.Context, id uuid.UUID) (*model.SarReport, error) {
+	report, err := s.repo.GetSarReport(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return report, nil
+}
+
+// ListSarReports returns paginated SAR reports.
+func (s *Service) ListSarReports(ctx context.Context, tenantID string, status *model.SarStatus, reportType *model.SarReportType, page, size int) ([]*model.SarReport, int64, error) {
+	return s.repo.ListSarReports(ctx, tenantID, status, reportType, page, size)
+}
+
+// UpdateSarReport updates an existing SAR report.
+func (s *Service) UpdateSarReport(ctx context.Context, id uuid.UUID, req model.UpdateSarReportRequest) (*model.SarReport, error) {
+	report, err := s.repo.GetSarReport(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if report == nil {
+		return nil, nil
+	}
+
+	if req.Status != nil {
+		report.Status = model.SarStatus(*req.Status)
+	}
+	if req.Narrative != nil {
+		report.Narrative = req.Narrative
+	}
+	if req.SuspiciousAmount != nil {
+		report.SuspiciousAmount = req.SuspiciousAmount
+	}
+	if req.ActivityStartDate != nil {
+		report.ActivityStartDate = req.ActivityStartDate
+	}
+	if req.ActivityEndDate != nil {
+		report.ActivityEndDate = req.ActivityEndDate
+	}
+	if req.ReviewedBy != nil {
+		report.ReviewedBy = req.ReviewedBy
+	}
+	if req.FiledBy != nil {
+		report.FiledBy = req.FiledBy
+		now := time.Now()
+		report.FiledAt = &now
+	}
+	if req.FilingReference != nil {
+		report.FilingReference = req.FilingReference
+	}
+
+	if err := s.repo.UpdateSarReport(ctx, report); err != nil {
+		return nil, err
+	}
+
+	return report, nil
 }
 
 // ---- helpers ----
