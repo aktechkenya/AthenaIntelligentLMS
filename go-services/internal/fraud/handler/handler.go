@@ -94,6 +94,7 @@ func (h *Handler) registerFraudRoutes(r chi.Router) {
 	r.Post("/screening/batch", h.BatchScreen)
 
 	r.Post("/evaluate", h.EvaluateTransaction)
+	r.Get("/rules/documentation", h.GetRulesDocumentation)
 }
 
 // RegisterRoutes registers all fraud detection routes on the given router.
@@ -840,6 +841,30 @@ func (h *Handler) BatchScreen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httputil.WriteJSON(w, http.StatusOK, result)
+}
+
+// GetRulesDocumentation handles GET /api/v1/fraud/rules/documentation
+func (h *Handler) GetRulesDocumentation(w http.ResponseWriter, r *http.Request) {
+	docs := []map[string]interface{}{
+		{"ruleCode": "LARGE_SINGLE_TXN", "category": "TRANSACTION", "summary": "Flags any single transaction exceeding the CTR reporting threshold", "howItWorks": "Compares transaction amount against configured threshold. Any transaction above the limit triggers an immediate alert.", "example": "A deposit of KES 2,500,000 exceeds the 1,000,000 threshold", "regulatoryBasis": "Central Bank of Kenya AML/CFT regulations require reporting of cash transactions above KES 1,000,000", "params": []map[string]interface{}{{"key": "threshold", "label": "Amount Threshold (KES)", "default": 1000000, "type": "number"}}},
+		{"ruleCode": "STRUCTURING", "category": "AML", "summary": "Detects smurfing — multiple transactions below threshold aggregating above it", "howItWorks": "Counts transactions below ceiling in time window. If 3+ transactions sum above threshold, indicates structuring.", "example": "5 deposits of KES 300,000 each within 24h totalling KES 1,500,000", "regulatoryBasis": "FATF Recommendation 20", "params": []map[string]interface{}{{"key": "threshold", "label": "Aggregate Threshold (KES)", "default": 1000000, "type": "number"}, {"key": "windowHours", "label": "Time Window (hours)", "default": 24, "type": "hours"}, {"key": "minTransactions", "label": "Min Transactions", "default": 3, "type": "count"}, {"key": "perTxnCeiling", "label": "Per-Txn Ceiling (KES)", "default": 999999, "type": "number"}}},
+		{"ruleCode": "ROUND_AMOUNT_PATTERN", "category": "TRANSACTION", "summary": "Detects unusual frequency of round-number transactions", "params": []map[string]interface{}{{"key": "minRoundTxns", "label": "Min Round Txns", "default": 5, "type": "count"}, {"key": "windowHours", "label": "Window (hours)", "default": 24, "type": "hours"}, {"key": "roundThreshold", "label": "Round Divisor (KES)", "default": 10000, "type": "number"}}},
+		{"ruleCode": "HIGH_VELOCITY_1H", "category": "VELOCITY", "summary": "Flags excessive transactions in 1-hour window", "params": []map[string]interface{}{{"key": "maxTransactions", "label": "Max Transactions", "default": 10, "type": "count"}, {"key": "windowMinutes", "label": "Window (min)", "default": 60, "type": "minutes"}}},
+		{"ruleCode": "HIGH_VELOCITY_24H", "category": "VELOCITY", "summary": "Flags excessive transactions over 24 hours", "params": []map[string]interface{}{{"key": "maxTransactions", "label": "Max Transactions", "default": 50, "type": "count"}, {"key": "windowMinutes", "label": "Window (min)", "default": 1440, "type": "minutes"}}},
+		{"ruleCode": "RAPID_FUND_MOVEMENT", "category": "AML", "summary": "Detects pass-through pattern — funds in and out within minutes", "regulatoryBasis": "FATF layering indicator", "params": []map[string]interface{}{{"key": "windowMinutes", "label": "Window (min)", "default": 15, "type": "minutes"}}},
+		{"ruleCode": "APPLICATION_STACKING", "category": "APPLICATION", "summary": "Detects multiple loan applications in short period", "params": []map[string]interface{}{{"key": "maxApplications", "label": "Max Applications", "default": 5, "type": "count"}, {"key": "windowDays", "label": "Window (days)", "default": 30, "type": "days"}}},
+		{"ruleCode": "EARLY_PAYOFF_SUSPICIOUS", "category": "AML", "summary": "Flags loans paid off suspiciously quickly after disbursement", "regulatoryBasis": "AML typology for trade-based money laundering", "params": []map[string]interface{}{{"key": "minDaysForAlert", "label": "Min Days", "default": 30, "type": "days"}}},
+		{"ruleCode": "LOAN_CYCLING", "category": "AML", "summary": "Detects rapid loan close-and-reapply patterns", "params": []map[string]interface{}{{"key": "windowDays", "label": "Window (days)", "default": 7, "type": "days"}}},
+		{"ruleCode": "DORMANT_REACTIVATION", "category": "ACCOUNT", "summary": "Flags activity on accounts dormant for extended period", "params": []map[string]interface{}{{"key": "dormantDays", "label": "Dormant Period (days)", "default": 180, "type": "days"}}},
+		{"ruleCode": "KYC_BYPASS_ATTEMPT", "category": "COMPLIANCE", "summary": "Flags transactions on accounts with pending/failed KYC", "regulatoryBasis": "POCAMLA KYC requirements", "params": []map[string]interface{}{}},
+		{"ruleCode": "OVERDRAFT_RAPID_DRAW", "category": "OVERDRAFT", "summary": "Flags immediate full drawdown of newly approved overdraft", "params": []map[string]interface{}{{"key": "drawdownThresholdPercent", "label": "Drawdown Threshold (%)", "default": 90, "type": "percentage"}, {"key": "windowMinutes", "label": "Window (min)", "default": 60, "type": "minutes"}}},
+		{"ruleCode": "BNPL_ABUSE", "category": "APPLICATION", "summary": "Detects rapid sequential BNPL approvals", "params": []map[string]interface{}{{"key": "maxApprovals", "label": "Max Approvals", "default": 3, "type": "count"}, {"key": "windowDays", "label": "Window (days)", "default": 7, "type": "days"}}},
+		{"ruleCode": "PAYMENT_REVERSAL_ABUSE", "category": "TRANSACTION", "summary": "Flags high ratio of reversed to completed payments", "params": []map[string]interface{}{{"key": "maxReversalPercent", "label": "Max Reversal Rate (%)", "default": 30, "type": "percentage"}, {"key": "minPayments", "label": "Min Payments", "default": 5, "type": "count"}}},
+		{"ruleCode": "OVERPAYMENT", "category": "AML", "summary": "Flags payments exceeding outstanding loan balance", "regulatoryBasis": "FATF typology for ML through lending", "params": []map[string]interface{}{{"key": "overpaymentThresholdPercent", "label": "Threshold (%)", "default": 110, "type": "percentage"}}},
+		{"ruleCode": "SUSPICIOUS_WRITEOFF", "category": "INTERNAL", "summary": "Flags write-offs on loans with recent activity", "params": []map[string]interface{}{{"key": "recentPaymentDays", "label": "Recent Activity Window (days)", "default": 30, "type": "days"}}},
+		{"ruleCode": "WATCHLIST_MATCH", "category": "COMPLIANCE", "summary": "Flags customers matching PEP, sanctions, or blacklists", "regulatoryBasis": "UN Security Council, OFAC, POCAMLA", "params": []map[string]interface{}{}},
+	}
+	httputil.WriteJSON(w, http.StatusOK, docs)
 }
 
 // EvaluateTransaction handles POST /api/v1/fraud/evaluate
