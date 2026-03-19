@@ -104,6 +104,7 @@ const collectionsNav = [
   { title: "Delinquency Queue", url: "/collections", icon: AlertTriangle },
   { title: "Collections Workbench", url: "/collections-workbench", icon: Phone },
   { title: "Legal & Write-Offs", url: "/legal", icon: Scale },
+  { title: "Strategies", url: "/collections/strategies", icon: Settings },
 ];
 
 const financeNav = [

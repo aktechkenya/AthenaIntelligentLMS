@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut, type PageResponse } from "@/lib/api";
+import { apiGet, apiPost, apiPut, apiDelete, type PageResponse } from "@/lib/api";
 
 // --- Interfaces ---
 export interface CollectionCase {
@@ -80,6 +80,30 @@ export interface AddActionRequest {
   contactMethod?: string;
   performedBy?: string;
   nextActionDate?: string;
+}
+
+export interface CollectionStrategy {
+  id: string;
+  tenantId: string;
+  name: string;
+  productType?: string;
+  dpdFrom: number;
+  dpdTo: number;
+  actionType: string;
+  priority: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateStrategyRequest {
+  name: string;
+  productType?: string;
+  dpdFrom: number;
+  dpdTo: number;
+  actionType: string;
+  priority: number;
+  isActive: boolean;
 }
 
 export interface AddPtpRequest {
@@ -167,5 +191,29 @@ export const collectionsService = {
     const r = await apiGet<PromiseToPay[]>(`${BASE}/cases/${caseId}/ptps`);
     if (r.error || !r.data) throw new Error(r.error ?? "Failed to list PTPs");
     return r.data;
+  },
+
+  // Strategies
+  async listStrategies(): Promise<CollectionStrategy[]> {
+    const r = await apiGet<CollectionStrategy[]>(`${BASE}/strategies`);
+    if (r.error || !r.data) throw new Error(r.error ?? "Failed to list strategies");
+    return r.data;
+  },
+
+  async createStrategy(req: CreateStrategyRequest): Promise<CollectionStrategy> {
+    const r = await apiPost<CollectionStrategy>(`${BASE}/strategies`, req);
+    if (r.error || !r.data) throw new Error(r.error ?? "Failed to create strategy");
+    return r.data;
+  },
+
+  async updateStrategy(id: string, req: Partial<CollectionStrategy>): Promise<CollectionStrategy> {
+    const r = await apiPut<CollectionStrategy>(`${BASE}/strategies/${id}`, req);
+    if (r.error || !r.data) throw new Error(r.error ?? "Failed to update strategy");
+    return r.data;
+  },
+
+  async deleteStrategy(id: string): Promise<void> {
+    const r = await apiDelete(`${BASE}/strategies/${id}`);
+    if (r.error) throw new Error(r.error ?? "Failed to delete strategy");
   },
 };
