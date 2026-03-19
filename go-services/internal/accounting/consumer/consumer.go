@@ -90,6 +90,10 @@ func (c *AccountingConsumer) handle(ctx context.Context, evt *event.DomainEvent)
 	case "loan.stage.changed":
 		c.handleStageChanged(payload)
 		return nil
+	case "float.drawn":
+		return c.handleFloatDrawn(ctx, payload, tenantID)
+	case "float.repaid":
+		return c.handleFloatRepaid(ctx, payload, tenantID)
 	case "overdraft.drawn":
 		return c.handleOverdraftDrawn(ctx, payload, tenantID)
 	case "overdraft.repaid":
@@ -197,6 +201,40 @@ func (c *AccountingConsumer) handleOverdraftFeeCharged(ctx context.Context, payl
 	}
 	amount := getDecimal(payload, "amount")
 	return c.svc.PostOverdraftFeeCharged(ctx, tenantID, sourceID, amount)
+}
+
+// handleFloatDrawn creates a GL entry when float pool is drawn for loan disbursement.
+// DR 2100 Borrowings (Float Liability increases) / CR 1000 Cash (Cash decreases)
+func (c *AccountingConsumer) handleFloatDrawn(ctx context.Context, payload map[string]any, tenantID string) error {
+	floatAccountID := getStr(payload, "floatAccountId")
+	loanID := getStr(payload, "loanId")
+	sourceID := fmt.Sprintf("FLOAT-DRAW-%s-%s", floatAccountID, loanID)
+	if sourceID == "FLOAT-DRAW--" {
+		sourceID = fmt.Sprintf("FLOAT-DRAW-%d", time.Now().UnixMilli())
+	}
+	if c.svc.EntryExists(ctx, "float.drawn", sourceID) {
+		return nil
+	}
+	amount := getDecimal(payload, "amount")
+	if amount.LessThanOrEqual(decimal.Zero) {
+		return nil
+	}
+	return c.svc.PostFloatDrawn(ctx, tenantID, sourceID, amount)
+}
+
+// handleFloatRepaid creates a GL entry when float pool is repaid via collections.
+// DR 1000 Cash (Cash increases) / CR 2100 Borrowings (Float Liability decreases)
+func (c *AccountingConsumer) handleFloatRepaid(ctx context.Context, payload map[string]any, tenantID string) error {
+	floatAccountID := getStr(payload, "floatAccountId")
+	sourceID := fmt.Sprintf("FLOAT-RPMT-%s-%d", floatAccountID, time.Now().UnixMilli())
+	if c.svc.EntryExists(ctx, "float.repaid", sourceID) {
+		return nil
+	}
+	amount := getDecimal(payload, "amount")
+	if amount.LessThanOrEqual(decimal.Zero) {
+		return nil
+	}
+	return c.svc.PostFloatRepaid(ctx, tenantID, sourceID, amount)
 }
 
 // --- helpers ---

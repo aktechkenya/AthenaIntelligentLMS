@@ -578,6 +578,54 @@ func (s *AccountingService) PostOverdraftFeeCharged(ctx context.Context, tenantI
 	return nil
 }
 
+// PostFloatDrawn creates a journal entry for a float pool draw (loan disbursement funded by float).
+// DR 2100 Borrowings (Float Liability) / CR 1000 Cash
+func (s *AccountingService) PostFloatDrawn(ctx context.Context, tenantID, sourceID string, amount decimal.Decimal) error {
+	drAccount, err := s.resolveAccountID(ctx, tenantID, "2100")
+	if err != nil {
+		return err
+	}
+	crAccount, err := s.resolveAccountID(ctx, tenantID, "1000")
+	if err != nil {
+		return err
+	}
+
+	entry := s.buildSystemEntry(tenantID, "FLOAT-DRAW-"+sourceID,
+		"Float drawn for loan disbursement "+sourceID, "float.drawn", sourceID,
+		drAccount, crAccount, amount)
+
+	if err := s.repo.CreateJournalEntry(ctx, entry); err != nil {
+		return err
+	}
+	s.publisher.PublishJournalPosted(ctx, entry)
+	s.logger.Info("Posted float drawn journal", zap.String("sourceId", sourceID), zap.String("amount", amount.String()))
+	return nil
+}
+
+// PostFloatRepaid creates a journal entry for a float pool repayment (collections reducing float liability).
+// DR 1000 Cash / CR 2100 Borrowings (Float Liability)
+func (s *AccountingService) PostFloatRepaid(ctx context.Context, tenantID, sourceID string, amount decimal.Decimal) error {
+	drAccount, err := s.resolveAccountID(ctx, tenantID, "1000")
+	if err != nil {
+		return err
+	}
+	crAccount, err := s.resolveAccountID(ctx, tenantID, "2100")
+	if err != nil {
+		return err
+	}
+
+	entry := s.buildSystemEntry(tenantID, "FLOAT-RPMT-"+sourceID,
+		"Float repayment from collections "+sourceID, "float.repaid", sourceID,
+		drAccount, crAccount, amount)
+
+	if err := s.repo.CreateJournalEntry(ctx, entry); err != nil {
+		return err
+	}
+	s.publisher.PublishJournalPosted(ctx, entry)
+	s.logger.Info("Posted float repayment journal", zap.String("sourceId", sourceID), zap.String("amount", amount.String()))
+	return nil
+}
+
 // --- Private helpers ---
 
 func (s *AccountingService) resolveAccountID(ctx context.Context, tenantID, code string) (uuid.UUID, error) {
