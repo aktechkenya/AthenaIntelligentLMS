@@ -50,6 +50,7 @@ import UsersPage from "./pages/UsersPage";
 import IntegrationsPage from "./pages/IntegrationsPage";
 import NotificationsPage from "./pages/NotificationsPage";
 import LegalPage from "./pages/LegalPage";
+import CaseDetailPage from "./pages/CaseDetailPage";
 import RepaymentsPage from "./pages/RepaymentsPage";
 import ModificationsPage from "./pages/ModificationsPage";
 import KYBPage from "./pages/KYBPage";
@@ -126,6 +127,7 @@ const AppRoutes = () => (
       <Route path="/loan/:loanId" element={<P><LoanDetailPage /></P>} />
       <Route path="/customer/:customerId" element={<P><Customer360Page /></P>} />
       <Route path="/collections-workbench" element={<P><CollectionsWorkbenchPage /></P>} />
+      <Route path="/collections/case/:id" element={<P><CaseDetailPage /></P>} />
       <Route path="/income-statement" element={<P><IncomeStatementPage /></P>} />
       <Route path="/balance-sheet" element={<P><BalanceSheetPage /></P>} />
       <Route path="/trial-balance" element={<P><TrialBalancePage /></P>} />
