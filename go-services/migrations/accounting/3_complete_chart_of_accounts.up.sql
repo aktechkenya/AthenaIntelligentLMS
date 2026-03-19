@@ -1,0 +1,25 @@
+-- Complete IFRS Chart of Accounts
+INSERT INTO chart_of_accounts (tenant_id, code, name, account_type, balance_type, description) VALUES
+    ('system', '1150', 'Accrued Interest Receivable', 'ASSET', 'DEBIT', 'Interest accrued but not yet received'),
+    ('system', '1410', 'Allowance for Credit Losses', 'ASSET', 'CREDIT', 'Expected credit loss provision (contra-asset)'),
+    ('system', '1500', 'Prepaid Expenses', 'ASSET', 'DEBIT', 'Expenses paid in advance'),
+    ('system', '1600', 'Fixed Assets', 'ASSET', 'DEBIT', 'Property, plant, and equipment'),
+    ('system', '1610', 'Accumulated Depreciation', 'ASSET', 'CREDIT', 'Cumulative depreciation on fixed assets (contra-asset)'),
+    ('system', '1700', 'Other Assets', 'ASSET', 'DEBIT', 'Miscellaneous assets'),
+    ('system', '1900', 'Suspense Account', 'ASSET', 'DEBIT', 'Temporary holding for unclassified transactions'),
+    ('system', '2200', 'Accounts Payable', 'LIABILITY', 'CREDIT', 'Amounts owed to suppliers and vendors'),
+    ('system', '2300', 'Accrued Expenses', 'LIABILITY', 'CREDIT', 'Expenses incurred but not yet paid'),
+    ('system', '2400', 'Tax Payable', 'LIABILITY', 'CREDIT', 'Taxes due to authorities'),
+    ('system', '2500', 'Deferred Income', 'LIABILITY', 'CREDIT', 'Income received but not yet earned'),
+    ('system', '2600', 'Other Liabilities', 'LIABILITY', 'CREDIT', 'Miscellaneous liabilities'),
+    ('system', '3100', 'Share Capital', 'EQUITY', 'CREDIT', 'Equity contributed by shareholders'),
+    ('system', '3200', 'Reserves', 'EQUITY', 'CREDIT', 'Statutory and regulatory reserves'),
+    ('system', '4400', 'Other Operating Income', 'INCOME', 'CREDIT', 'Non-core operating revenue'),
+    ('system', '5200', 'Staff Costs', 'EXPENSE', 'DEBIT', 'Salaries, benefits, and related costs'),
+    ('system', '5300', 'Administrative Expenses', 'EXPENSE', 'DEBIT', 'Office, rent, utilities, and admin costs'),
+    ('system', '5400', 'Depreciation Expense', 'EXPENSE', 'DEBIT', 'Periodic depreciation charges'),
+    ('system', '5500', 'Regulatory Costs', 'EXPENSE', 'DEBIT', 'License fees and regulatory compliance costs'),
+    ('system', '5600', 'Other Operating Expenses', 'EXPENSE', 'DEBIT', 'Miscellaneous operating expenses'),
+    ('system', '5700', 'Tax Expense', 'EXPENSE', 'DEBIT', 'Income tax and other tax charges'),
+    ('system', '6000', 'Provision for Credit Losses', 'EXPENSE', 'DEBIT', 'IFRS 9 expected credit loss charges')
+ON CONFLICT (tenant_id, code) DO NOTHING;
