@@ -1,4 +1,4 @@
-import { apiGet, type PageResponse } from "@/lib/api";
+import { apiGet, apiPost, type PageResponse } from "@/lib/api";
 
 export interface JournalEntryLine {
   id: string;
@@ -61,6 +61,50 @@ export interface GLAccount {
   createdAt?: string;
 }
 
+export interface FiscalPeriod {
+  id: string;
+  tenantId: string;
+  periodYear: number;
+  periodMonth: number;
+  status: "OPEN" | "SOFT_CLOSED" | "CLOSED";
+  closedBy?: string;
+  closedAt?: string;
+  reopenedBy?: string;
+  reopenReason?: string;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  tenantId: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  userId?: string;
+  userRole?: string;
+  details?: any;
+  ipAddress?: string;
+  createdAt: string;
+}
+
+export interface CashFlowItem {
+  description: string;
+  amount: number;
+}
+
+export interface CashFlowResponse {
+  periodYear: number;
+  periodMonth: number;
+  operatingItems: CashFlowItem[];
+  investingItems: CashFlowItem[];
+  financingItems: CashFlowItem[];
+  totalOperating: number;
+  totalInvesting: number;
+  totalFinancing: number;
+  netCashFlow: number;
+  openingCash: number;
+  closingCash: number;
+}
+
 const BASE = "/proxy/accounting/api/v1/accounting";
 
 export const accountingService = {
@@ -73,8 +117,11 @@ export const accountingService = {
     return result.data;
   },
 
-  async listJournalEntries(page = 0, size = 20): Promise<PageResponse<JournalEntry>> {
+  async listJournalEntries(page = 0, size = 20, from?: string, to?: string, status?: string): Promise<PageResponse<JournalEntry>> {
     const params = new URLSearchParams({ page: String(page), size: String(size) });
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
+    if (status) params.set("status", status);
     const result = await apiGet<PageResponse<JournalEntry>>(`${BASE}/journal-entries?${params}`);
     if (result.error || !result.data) {
       throw new Error(result.error ?? "Failed to list journal entries");
@@ -82,11 +129,77 @@ export const accountingService = {
     return result.data;
   },
 
-  async getTrialBalance(): Promise<TrialBalanceResponse> {
-    const result = await apiGet<TrialBalanceResponse>(`${BASE}/trial-balance`);
+  async getTrialBalance(year?: number, month?: number): Promise<TrialBalanceResponse> {
+    const params = new URLSearchParams();
+    if (year) params.set("year", String(year));
+    if (month) params.set("month", String(month));
+    const qs = params.toString();
+    const result = await apiGet<TrialBalanceResponse>(`${BASE}/trial-balance${qs ? `?${qs}` : ""}`);
     if (result.error || !result.data) {
       throw new Error(result.error ?? "Failed to fetch trial balance");
     }
+    return result.data;
+  },
+
+  async submitEntry(id: string): Promise<JournalEntry> {
+    const result = await apiPost<JournalEntry>(`${BASE}/journal-entries/${id}/submit`, {});
+    if (result.error || !result.data) throw new Error(result.error ?? "Failed to submit entry");
+    return result.data;
+  },
+
+  async approveEntry(id: string): Promise<JournalEntry> {
+    const result = await apiPost<JournalEntry>(`${BASE}/journal-entries/${id}/approve`, {});
+    if (result.error || !result.data) throw new Error(result.error ?? "Failed to approve entry");
+    return result.data;
+  },
+
+  async rejectEntry(id: string, reason: string): Promise<JournalEntry> {
+    const result = await apiPost<JournalEntry>(`${BASE}/journal-entries/${id}/reject`, { reason });
+    if (result.error || !result.data) throw new Error(result.error ?? "Failed to reject entry");
+    return result.data;
+  },
+
+  async reverseEntry(id: string, reason: string): Promise<JournalEntry> {
+    const result = await apiPost<JournalEntry>(`${BASE}/journal-entries/${id}/reverse`, { reason });
+    if (result.error || !result.data) throw new Error(result.error ?? "Failed to reverse entry");
+    return result.data;
+  },
+
+  async listPeriods(): Promise<FiscalPeriod[]> {
+    const result = await apiGet<FiscalPeriod[]>(`${BASE}/periods`);
+    if (result.error || !result.data) throw new Error(result.error ?? "Failed to list periods");
+    return result.data;
+  },
+
+  async closePeriod(year: number, month: number): Promise<FiscalPeriod> {
+    const result = await apiPost<FiscalPeriod>(`${BASE}/periods/${year}/${month}/close`, {});
+    if (result.error || !result.data) throw new Error(result.error ?? "Failed to close period");
+    return result.data;
+  },
+
+  async reopenPeriod(year: number, month: number, reason: string): Promise<FiscalPeriod> {
+    const result = await apiPost<FiscalPeriod>(`${BASE}/periods/${year}/${month}/reopen`, { reason });
+    if (result.error || !result.data) throw new Error(result.error ?? "Failed to reopen period");
+    return result.data;
+  },
+
+  async listAuditLogs(page = 0, size = 20, entityType?: string, from?: string, to?: string): Promise<PageResponse<AuditLogEntry>> {
+    const params = new URLSearchParams({ page: String(page), size: String(size) });
+    if (entityType) params.set("entityType", entityType);
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
+    const result = await apiGet<PageResponse<AuditLogEntry>>(`${BASE}/audit-log?${params}`);
+    if (result.error || !result.data) throw new Error(result.error ?? "Failed to list audit logs");
+    return result.data;
+  },
+
+  async getCashFlow(year?: number, month?: number): Promise<CashFlowResponse> {
+    const params = new URLSearchParams();
+    if (year) params.set("year", String(year));
+    if (month) params.set("month", String(month));
+    const qs = params.toString();
+    const result = await apiGet<CashFlowResponse>(`${BASE}/cash-flow${qs ? `?${qs}` : ""}`);
+    if (result.error || !result.data) throw new Error(result.error ?? "Failed to fetch cash flow");
     return result.data;
   },
 };

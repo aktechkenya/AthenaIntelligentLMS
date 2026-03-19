@@ -55,6 +55,8 @@ import CurrenciesFxPage from "./pages/CurrenciesFxPage";
 import TellerSessionPage from "./pages/TellerSessionPage";
 import ConsolidatedReportsPage from "./pages/ConsolidatedReportsPage";
 import DocumentsPage from "./pages/DocumentsPage";
+import CashFlowPage from "./pages/CashFlowPage";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 const queryClient = new QueryClient();
 
@@ -92,7 +94,7 @@ const P = ({ children }: { children: React.ReactNode }) => (
 );
 
 const AppRoutes = () => (
-  <>
+  <ErrorBoundary>
     <SetupBanner />
     <Routes>
       <Route path="/login" element={<LoginPage />} />
@@ -117,6 +119,7 @@ const AppRoutes = () => (
       <Route path="/income-statement" element={<P><IncomeStatementPage /></P>} />
       <Route path="/balance-sheet" element={<P><BalanceSheetPage /></P>} />
       <Route path="/trial-balance" element={<P><TrialBalancePage /></P>} />
+      <Route path="/cash-flow" element={<P><CashFlowPage /></P>} />
       <Route path="/aml" element={<P><AMLPage /></P>} />
       <Route path="/fraud" element={<P><FraudAlertsPage /></P>} />
       <Route path="/fraud-dashboard" element={<P><FraudDashboardPage /></P>} />
@@ -145,7 +148,7 @@ const AppRoutes = () => (
       <Route path="/documents" element={<P><DocumentsPage /></P>} />
       <Route path="*" element={<NotFound />} />
     </Routes>
-  </>
+  </ErrorBoundary>
 );
 
 const App = () => (

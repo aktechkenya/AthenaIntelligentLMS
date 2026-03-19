@@ -104,6 +104,7 @@ const financeNav = [
   { title: "Income Statement", url: "/income-statement", icon: TrendingUp },
   { title: "Balance Sheet", url: "/balance-sheet", icon: PieChartIcon },
   { title: "Trial Balance", url: "/trial-balance", icon: FileBarChart },
+  { title: "Cash Flow", url: "/cash-flow", icon: DollarSign },
 ];
 
 const complianceNav = [

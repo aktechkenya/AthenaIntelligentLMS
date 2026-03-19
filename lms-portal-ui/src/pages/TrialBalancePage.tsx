@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,11 +9,16 @@ import {
 import { formatKES } from "@/lib/format";
 import { useQuery } from "@tanstack/react-query";
 import { accountingService, type TrialBalanceAccount } from "@/services/accountingService";
+import { PeriodSelector } from "@/components/PeriodSelector";
 
 const TrialBalancePage = () => {
+  const now = new Date();
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() + 1);
+
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["accounting", "trial-balance"],
-    queryFn: () => accountingService.getTrialBalance(),
+    queryKey: ["accounting", "trial-balance", year, month],
+    queryFn: () => accountingService.getTrialBalance(year, month),
     staleTime: 300_000,
     retry: false,
   });
@@ -29,6 +35,10 @@ const TrialBalancePage = () => {
       breadcrumbs={[{ label: "Home", href: "/" }, { label: "Finance" }, { label: "Trial Balance" }]}
     >
       <div className="space-y-4 max-w-4xl">
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">Period:</span>
+          <PeriodSelector year={year} month={month} onYearChange={setYear} onMonthChange={setMonth} />
+        </div>
         <Card>
           <CardContent className="p-0">
             {isLoading ? (

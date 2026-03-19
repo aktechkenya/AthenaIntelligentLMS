@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +13,7 @@ import {
 } from "@/components/ui/table";
 import { Loader2, TrendingUp, TrendingDown } from "lucide-react";
 import { accountingService, type TrialBalanceAccount } from "@/services/accountingService";
+import { PeriodSelector } from "@/components/PeriodSelector";
 
 const fmt = (n: number) => `KES ${n.toLocaleString("en-KE", { minimumFractionDigits: 2 })}`;
 
@@ -60,9 +62,13 @@ const IncomeSection = ({ title, icon, rows, total }: SectionProps) => (
 );
 
 const IncomeStatementPage = () => {
+  const now = new Date();
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() + 1);
+
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["accounting", "trial-balance"],
-    queryFn: () => accountingService.getTrialBalance(),
+    queryKey: ["accounting", "trial-balance", year, month],
+    queryFn: () => accountingService.getTrialBalance(year, month),
   });
 
   const accounts = data?.accounts ?? [];
@@ -79,6 +85,11 @@ const IncomeStatementPage = () => {
       title="Income Statement"
       subtitle="Revenue and expenses for the current period"
     >
+      <div className="flex items-center justify-between mb-4">
+        <span className="text-sm text-muted-foreground">Period:</span>
+        <PeriodSelector year={year} month={month} onYearChange={setYear} onMonthChange={setMonth} />
+      </div>
+
       {isLoading && (
         <div className="flex items-center justify-center h-64 text-muted-foreground">
           <Loader2 className="h-6 w-6 animate-spin mr-2" />
