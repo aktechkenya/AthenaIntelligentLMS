@@ -12,6 +12,7 @@ import (
 	"github.com/athena-lms/go-services/internal/common/auth"
 	"github.com/athena-lms/go-services/internal/common/dto"
 	"github.com/athena-lms/go-services/internal/common/httputil"
+	"github.com/athena-lms/go-services/internal/fraud/engine"
 	"github.com/athena-lms/go-services/internal/fraud/model"
 	"github.com/athena-lms/go-services/internal/fraud/service"
 )
@@ -19,12 +20,13 @@ import (
 // Handler handles HTTP requests for fraud detection.
 type Handler struct {
 	svc    *service.Service
+	eng    *engine.Engine
 	logger *zap.Logger
 }
 
 // New creates a new Handler.
-func New(svc *service.Service, logger *zap.Logger) *Handler {
-	return &Handler{svc: svc, logger: logger}
+func New(svc *service.Service, eng *engine.Engine, logger *zap.Logger) *Handler {
+	return &Handler{svc: svc, eng: eng, logger: logger}
 }
 
 // RegisterRoutes registers all fraud detection routes on the given router.
@@ -71,6 +73,8 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Get("/network/{customerId}", h.ListNetworkLinks)
 
 		r.Get("/audit", h.ListAuditLog)
+
+		r.Post("/evaluate", h.EvaluateTransaction)
 	})
 }
 
@@ -775,6 +779,25 @@ func (h *Handler) UpdateSarReport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, report)
+}
+
+// EvaluateTransaction handles POST /api/v1/fraud/evaluate
+func (h *Handler) EvaluateTransaction(w http.ResponseWriter, r *http.Request) {
+	var req model.EvaluateTransactionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	resp, err := h.eng.Evaluate(r.Context(), tenantID, req)
+	if err != nil {
+		h.logger.Error("Failed to evaluate transaction", zap.Error(err))
+		httputil.WriteInternalError(w, "Failed to evaluate transaction", r.URL.Path)
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 
 // ListAuditLog handles GET /api/v1/fraud/audit

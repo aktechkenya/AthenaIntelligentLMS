@@ -18,6 +18,7 @@ import (
 	"github.com/athena-lms/go-services/internal/common/db"
 	commonmw "github.com/athena-lms/go-services/internal/common/middleware"
 	"github.com/athena-lms/go-services/internal/common/rabbitmq"
+	"github.com/athena-lms/go-services/internal/fraud/engine"
 	"github.com/athena-lms/go-services/internal/fraud/handler"
 	"github.com/athena-lms/go-services/internal/fraud/repository"
 	"github.com/athena-lms/go-services/internal/fraud/service"
@@ -80,7 +81,8 @@ func main() {
 	// Wire up fraud detection components
 	repo := repository.New(pool)
 	svc := service.New(repo, logger)
-	h := handler.New(svc, logger)
+	eng := engine.New(repo, logger)
+	h := handler.New(svc, eng, logger)
 
 	// Router
 	r := chi.NewRouter()
