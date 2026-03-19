@@ -15,15 +15,18 @@ import (
 type AccountType string
 
 const (
-	AccountTypeCurrent AccountType = "CURRENT"
-	AccountTypeSavings AccountType = "SAVINGS"
-	AccountTypeWallet  AccountType = "WALLET"
+	AccountTypeCurrent      AccountType = "CURRENT"
+	AccountTypeSavings      AccountType = "SAVINGS"
+	AccountTypeWallet       AccountType = "WALLET"
+	AccountTypeFixedDeposit AccountType = "FIXED_DEPOSIT"
+	AccountTypeCallDeposit  AccountType = "CALL_DEPOSIT"
 )
 
 // ValidAccountType returns true if s is a valid AccountType.
 func ValidAccountType(s string) bool {
 	switch AccountType(s) {
-	case AccountTypeCurrent, AccountTypeSavings, AccountTypeWallet:
+	case AccountTypeCurrent, AccountTypeSavings, AccountTypeWallet,
+		AccountTypeFixedDeposit, AccountTypeCallDeposit:
 		return true
 	}
 	return false
@@ -33,16 +36,19 @@ func ValidAccountType(s string) bool {
 type AccountStatus string
 
 const (
-	AccountStatusActive  AccountStatus = "ACTIVE"
-	AccountStatusFrozen  AccountStatus = "FROZEN"
-	AccountStatusDormant AccountStatus = "DORMANT"
-	AccountStatusClosed  AccountStatus = "CLOSED"
+	AccountStatusActive          AccountStatus = "ACTIVE"
+	AccountStatusFrozen          AccountStatus = "FROZEN"
+	AccountStatusDormant         AccountStatus = "DORMANT"
+	AccountStatusClosed          AccountStatus = "CLOSED"
+	AccountStatusPendingApproval AccountStatus = "PENDING_APPROVAL"
+	AccountStatusMatured         AccountStatus = "MATURED"
 )
 
 // ValidAccountStatus returns true if s is a valid AccountStatus.
 func ValidAccountStatus(s string) bool {
 	switch AccountStatus(s) {
-	case AccountStatusActive, AccountStatusFrozen, AccountStatusDormant, AccountStatusClosed:
+	case AccountStatusActive, AccountStatusFrozen, AccountStatusDormant, AccountStatusClosed,
+		AccountStatusPendingApproval, AccountStatusMatured:
 		return true
 	}
 	return false
@@ -50,20 +56,69 @@ func ValidAccountStatus(s string) bool {
 
 // Account represents a bank account.
 type Account struct {
-	ID                     uuid.UUID       `json:"id"`
-	TenantID               string          `json:"tenantId"`
-	AccountNumber          string          `json:"accountNumber"`
-	CustomerID             string          `json:"customerId"`
-	AccountType            AccountType     `json:"accountType"`
-	Status                 AccountStatus   `json:"status"`
-	Currency               string          `json:"currency"`
-	KycTier                int             `json:"kycTier"`
-	DailyTransactionLimit  *decimal.Decimal `json:"dailyTransactionLimit,omitempty"`
+	ID                      uuid.UUID        `json:"id"`
+	TenantID                string           `json:"tenantId"`
+	AccountNumber           string           `json:"accountNumber"`
+	CustomerID              string           `json:"customerId"`
+	AccountType             AccountType      `json:"accountType"`
+	Status                  AccountStatus    `json:"status"`
+	Currency                string           `json:"currency"`
+	KycTier                 int              `json:"kycTier"`
+	DailyTransactionLimit   *decimal.Decimal `json:"dailyTransactionLimit,omitempty"`
 	MonthlyTransactionLimit *decimal.Decimal `json:"monthlyTransactionLimit,omitempty"`
-	AccountName            *string         `json:"accountName,omitempty"`
-	Balance                *AccountBalance `json:"balance,omitempty"`
-	CreatedAt              time.Time       `json:"createdAt"`
-	UpdatedAt              time.Time       `json:"updatedAt"`
+	AccountName             *string          `json:"accountName,omitempty"`
+	Balance                 *AccountBalance  `json:"balance,omitempty"`
+	// Deposit product link
+	DepositProductID        *uuid.UUID       `json:"depositProductId,omitempty"`
+	BranchID                *string          `json:"branchId,omitempty"`
+	OpenedBy                *string          `json:"openedBy,omitempty"`
+	ClosedAt                *time.Time       `json:"closedAt,omitempty"`
+	ClosureReason           *string          `json:"closureReason,omitempty"`
+	LastTransactionDate     *time.Time       `json:"lastTransactionDate,omitempty"`
+	DormantSince            *time.Time       `json:"dormantSince,omitempty"`
+	// Fixed deposit
+	MaturityDate            *time.Time       `json:"maturityDate,omitempty"`
+	TermDays                *int             `json:"termDays,omitempty"`
+	LockedAmount            *decimal.Decimal `json:"lockedAmount,omitempty"`
+	AutoRenew               bool             `json:"autoRenew"`
+	// Interest
+	AccruedInterest           *decimal.Decimal `json:"accruedInterest,omitempty"`
+	LastInterestAccrualDate   *time.Time       `json:"lastInterestAccrualDate,omitempty"`
+	LastInterestPostingDate   *time.Time       `json:"lastInterestPostingDate,omitempty"`
+	InterestRateOverride      *decimal.Decimal `json:"interestRateOverride,omitempty"`
+	CreatedAt                 time.Time        `json:"createdAt"`
+	UpdatedAt                 time.Time        `json:"updatedAt"`
+}
+
+// ─── Interest Accrual ────────────────────────────────────────────────────────
+
+// InterestAccrual records a single day's interest accrual for an account.
+type InterestAccrual struct {
+	ID          uuid.UUID       `json:"id"`
+	TenantID    string          `json:"tenantId"`
+	AccountID   uuid.UUID       `json:"accountId"`
+	AccrualDate time.Time       `json:"accrualDate"`
+	BalanceUsed decimal.Decimal `json:"balanceUsed"`
+	Rate        decimal.Decimal `json:"rate"`
+	DailyAmount decimal.Decimal `json:"dailyAmount"`
+	Posted      bool            `json:"posted"`
+	PostingID   *uuid.UUID      `json:"postingId,omitempty"`
+	CreatedAt   time.Time       `json:"createdAt"`
+}
+
+// InterestPosting records a periodic interest credit to an account.
+type InterestPosting struct {
+	ID              uuid.UUID       `json:"id"`
+	TenantID        string          `json:"tenantId"`
+	AccountID       uuid.UUID       `json:"accountId"`
+	PeriodStart     time.Time       `json:"periodStart"`
+	PeriodEnd       time.Time       `json:"periodEnd"`
+	GrossInterest   decimal.Decimal `json:"grossInterest"`
+	WithholdingTax  decimal.Decimal `json:"withholdingTax"`
+	NetInterest     decimal.Decimal `json:"netInterest"`
+	TransactionID   *uuid.UUID      `json:"transactionId,omitempty"`
+	PostedAt        time.Time       `json:"postedAt"`
+	PostedBy        *string         `json:"postedBy,omitempty"`
 }
 
 // ─── AccountBalance ───────────────────────────────────────────────────────────

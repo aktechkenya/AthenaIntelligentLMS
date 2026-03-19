@@ -105,12 +105,15 @@ func main() {
 
 	svc := service.New(repo, publisher, logger)
 	h := handler.New(svc, logger)
+	depositSvc := service.NewDepositService(repo, logger)
+	depositH := handler.NewDepositHandler(depositSvc, logger)
 
 	// Protected routes
 	authMw := auth.NewMiddleware(jwtUtil, cfg.InternalServiceKey, logger)
 	r.Group(func(r chi.Router) {
 		r.Use(authMw.Handler)
 		h.RegisterRoutes(r)
+		depositH.RegisterRoutes(r)
 	})
 
 	// Server

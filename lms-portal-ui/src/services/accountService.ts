@@ -1,4 +1,4 @@
-import { apiGet, apiPost, type PageResponse } from "@/lib/api";
+import { apiGet, apiPost, apiPut, type PageResponse } from "@/lib/api";
 
 export interface Account {
   id: string;
@@ -7,9 +7,29 @@ export interface Account {
   customerId: string;
   status: string;
   currency: string;
-  balance?: number;
+  balance?: number | { availableBalance: number; currentBalance: number; ledgerBalance: number };
   branchCode?: string;
   createdAt?: string;
+  // Deposit product fields
+  depositProductId?: string;
+  branchId?: string;
+  openedBy?: string;
+  closedAt?: string;
+  closureReason?: string;
+  lastTransactionDate?: string;
+  dormantSince?: string;
+  // Fixed deposit
+  maturityDate?: string;
+  termDays?: number;
+  lockedAmount?: number;
+  autoRenew?: boolean;
+  // Interest
+  accruedInterest?: number;
+  lastInterestAccrualDate?: string;
+  lastInterestPostingDate?: string;
+  interestRateOverride?: number;
+  accountName?: string;
+  kycTier?: number;
 }
 
 export interface CreateAccountRequest {
@@ -17,6 +37,20 @@ export interface CreateAccountRequest {
   accountType: string;
   currency: string;
   branchCode?: string;
+}
+
+export interface OpenAccountRequest {
+  customerId: string;
+  depositProductId?: string;
+  accountType: string;
+  currency: string;
+  kycTier: number;
+  accountName: string;
+  branchId?: string;
+  initialDeposit?: number;
+  termDays?: number;
+  autoRenew?: boolean;
+  interestRateOverride?: number;
 }
 
 export interface BalanceResponse {
@@ -41,6 +75,7 @@ export interface Transaction {
   valueDate: string;
   createdAt?: string;
   runningBalance?: number;
+  balanceAfter?: number;
 }
 
 export interface TransferRequest {
@@ -82,8 +117,46 @@ export interface StatementResponse {
   transactions: PageResponse<Transaction>;
 }
 
+export interface InterestAccrual {
+  id: string;
+  accountId: string;
+  accrualDate: string;
+  balanceUsed: number;
+  rate: number;
+  dailyAmount: number;
+  posted: boolean;
+}
+
+export interface InterestPosting {
+  id: string;
+  accountId: string;
+  periodStart: string;
+  periodEnd: string;
+  grossInterest: number;
+  withholdingTax: number;
+  netInterest: number;
+  postedAt: string;
+  postedBy?: string;
+}
+
+export interface InterestSummary {
+  accountId: string;
+  unpostedTotal: number;
+  recentAccruals: InterestAccrual[];
+  postingHistory: InterestPosting[];
+}
+
+export interface EODResult {
+  date: string;
+  accountsAccrued: number;
+  dormantDetected: number;
+  maturedProcessed: number;
+  status: string;
+}
+
 const BASE = "/proxy/auth/api/v1/accounts";
 const TRANSFER_BASE = "/proxy/auth/api/v1/transfers";
+const EOD_BASE = "/proxy/auth/api/v1/eod";
 
 export const accountService = {
   async listAccounts(
@@ -110,6 +183,30 @@ export const accountService = {
     const result = await apiPost<Account>(BASE, req);
     if (result.error || !result.data) {
       throw new Error(result.error ?? "Failed to create account");
+    }
+    return result.data;
+  },
+
+  async openAccount(req: OpenAccountRequest): Promise<Account> {
+    const result = await apiPost<Account>(`${BASE}/open`, req);
+    if (result.error || !result.data) {
+      throw new Error(result.error ?? "Failed to open account");
+    }
+    return result.data;
+  },
+
+  async approveAccount(id: string): Promise<Account> {
+    const result = await apiPost<Account>(`${BASE}/${id}/approve`, {});
+    if (result.error || !result.data) {
+      throw new Error(result.error ?? "Failed to approve account");
+    }
+    return result.data;
+  },
+
+  async closeAccount(id: string, reason: string): Promise<Account> {
+    const result = await apiPost<Account>(`${BASE}/${id}/close`, { reason });
+    if (result.error || !result.data) {
+      throw new Error(result.error ?? "Failed to close account");
     }
     return result.data;
   },
@@ -153,11 +250,43 @@ export const accountService = {
     size = 50
   ): Promise<StatementResponse> {
     const params = new URLSearchParams({
-      from, to, page: String(page), size: String(size),
+      startDate: from, endDate: to, page: String(page), size: String(size),
     });
     const result = await apiGet<StatementResponse>(`${BASE}/${accountId}/statement?${params}`);
     if (result.error || !result.data) {
       throw new Error(result.error ?? "Failed to fetch statement");
+    }
+    return result.data;
+  },
+
+  async getInterestSummary(id: string): Promise<InterestSummary> {
+    const result = await apiGet<InterestSummary>(`${BASE}/${id}/interest-summary`);
+    if (result.error || !result.data) {
+      throw new Error(result.error ?? "Failed to fetch interest summary");
+    }
+    return result.data;
+  },
+
+  async postInterest(id: string): Promise<InterestPosting> {
+    const result = await apiPost<InterestPosting>(`${BASE}/${id}/post-interest`, {});
+    if (result.error || !result.data) {
+      throw new Error(result.error ?? "Failed to post interest");
+    }
+    return result.data;
+  },
+
+  async updateStatus(id: string, status: string): Promise<Account> {
+    const result = await apiPut<Account>(`${BASE}/${id}/status`, { status });
+    if (result.error || !result.data) {
+      throw new Error(result.error ?? "Failed to update status");
+    }
+    return result.data;
+  },
+
+  async runEOD(): Promise<EODResult> {
+    const result = await apiPost<EODResult>(`${EOD_BASE}/run`, {});
+    if (result.error || !result.data) {
+      throw new Error(result.error ?? "Failed to run EOD");
     }
     return result.data;
   },
@@ -189,6 +318,14 @@ export const accountService = {
     );
     if (result.error || !result.data) {
       throw new Error(result.error ?? "Failed to fetch transfers");
+    }
+    return result.data;
+  },
+
+  async searchAccounts(q: string): Promise<Account[]> {
+    const result = await apiGet<Account[]>(`${BASE}/search?q=${encodeURIComponent(q)}`);
+    if (result.error || !result.data) {
+      throw new Error(result.error ?? "Failed to search accounts");
     }
     return result.data;
   },

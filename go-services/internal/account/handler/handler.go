@@ -24,6 +24,9 @@ type Handler struct {
 	accountSvc  *service.AccountService
 	customerSvc *service.CustomerService
 	transferSvc *service.TransferService
+	openingSvc  *service.AccountOpeningService
+	interestSvc *service.InterestService
+	eodSvc      *service.EODService
 	repo        *repository.Repository
 	logger      *zap.Logger
 }
@@ -38,10 +41,20 @@ func NewWithRepo(accountSvc *service.AccountService, customerSvc *service.Custom
 	return &Handler{accountSvc: accountSvc, customerSvc: customerSvc, transferSvc: transferSvc, repo: repo, logger: logger}
 }
 
+// SetOpeningService sets the account opening service.
+func (h *Handler) SetOpeningService(svc *service.AccountOpeningService) { h.openingSvc = svc }
+
+// SetInterestService sets the interest service.
+func (h *Handler) SetInterestService(svc *service.InterestService) { h.interestSvc = svc }
+
+// SetEODService sets the EOD service.
+func (h *Handler) SetEODService(svc *service.EODService) { h.eodSvc = svc }
+
 // RegisterRoutes registers all account service routes.
 func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Route("/api/v1/accounts", func(r chi.Router) {
 		r.Post("/", h.CreateAccount)
+		r.Post("/open", h.OpenAccount)
 		r.Get("/", h.ListAccounts)
 		r.Get("/search", h.SearchAccounts)
 		r.Get("/customer/{customerId}", h.GetAccountsByCustomer)
@@ -53,6 +66,13 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Get("/{id}/mini-statement", h.GetMiniStatement)
 		r.Get("/{id}/statement", h.GetStatement)
 		r.Put("/{id}/status", h.UpdateStatus)
+		r.Post("/{id}/approve", h.ApproveAccount)
+		r.Post("/{id}/close", h.CloseAccount)
+		r.Get("/{id}/interest-summary", h.GetInterestSummary)
+		r.Post("/{id}/post-interest", h.PostInterest)
+	})
+	r.Route("/api/v1/eod", func(r chi.Router) {
+		r.Post("/run", h.RunEOD)
 	})
 	r.Route("/api/v1/customers", func(r chi.Router) {
 		r.Post("/", h.CreateCustomer)
@@ -741,6 +761,126 @@ func (h *Handler) UpdateUserStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httputil.WriteJSON(w, http.StatusOK, user)
+}
+
+// --- Account Opening / Closing / Interest ---
+
+func (h *Handler) OpenAccount(w http.ResponseWriter, r *http.Request) {
+	if h.openingSvc == nil {
+		httputil.WriteInternalError(w, "Account opening service not available", r.URL.Path)
+		return
+	}
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	userID := auth.UserIDFromContext(r.Context())
+	var req service.OpenAccountRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+	resp, err := h.openingSvc.OpenAccount(r.Context(), req, tenantID, userID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusCreated, resp)
+}
+
+func (h *Handler) ApproveAccount(w http.ResponseWriter, r *http.Request) {
+	if h.openingSvc == nil {
+		httputil.WriteInternalError(w, "Account opening service not available", r.URL.Path)
+		return
+	}
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid account ID", r.URL.Path)
+		return
+	}
+	resp, err := h.openingSvc.ApproveAccount(r.Context(), id, tenantID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) CloseAccount(w http.ResponseWriter, r *http.Request) {
+	if h.openingSvc == nil {
+		httputil.WriteInternalError(w, "Account opening service not available", r.URL.Path)
+		return
+	}
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid account ID", r.URL.Path)
+		return
+	}
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteBadRequest(w, "Invalid request body", r.URL.Path)
+		return
+	}
+	resp, err := h.openingSvc.CloseAccount(r.Context(), id, req.Reason, tenantID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) GetInterestSummary(w http.ResponseWriter, r *http.Request) {
+	if h.interestSvc == nil {
+		httputil.WriteInternalError(w, "Interest service not available", r.URL.Path)
+		return
+	}
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid account ID", r.URL.Path)
+		return
+	}
+	resp, err := h.interestSvc.GetInterestSummary(r.Context(), id, tenantID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) PostInterest(w http.ResponseWriter, r *http.Request) {
+	if h.interestSvc == nil {
+		httputil.WriteInternalError(w, "Interest service not available", r.URL.Path)
+		return
+	}
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	userID := auth.UserIDFromContext(r.Context())
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		httputil.WriteBadRequest(w, "Invalid account ID", r.URL.Path)
+		return
+	}
+	resp, err := h.interestSvc.PostAccruedInterest(r.Context(), id, tenantID, userID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) RunEOD(w http.ResponseWriter, r *http.Request) {
+	if h.eodSvc == nil {
+		httputil.WriteInternalError(w, "EOD service not available", r.URL.Path)
+		return
+	}
+	tenantID := auth.TenantIDOrDefault(r.Context())
+	resp, err := h.eodSvc.RunEOD(r.Context(), tenantID)
+	if err != nil {
+		h.handleError(w, r, err)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 
 // --- Helpers ---

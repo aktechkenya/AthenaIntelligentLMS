@@ -86,7 +86,14 @@ func main() {
 	accountSvc := service.NewAccountService(repo, acctPub, logger)
 	customerSvc := service.NewCustomerService(repo, acctPub, logger)
 	transferSvc := service.NewTransferService(repo, acctPub, logger, "", cfg.InternalServiceKey)
+	openingSvc := service.NewAccountOpeningService(repo, acctPub, logger)
+	interestSvc := service.NewInterestService(repo, acctPub, logger)
+	dormancySvc := service.NewDormancyService(repo, acctPub, logger)
+	eodSvc := service.NewEODService(interestSvc, dormancySvc, logger)
 	hdlr := handler.NewWithRepo(accountSvc, customerSvc, transferSvc, repo, logger)
+	hdlr.SetOpeningService(openingSvc)
+	hdlr.SetInterestService(interestSvc)
+	hdlr.SetEODService(eodSvc)
 
 	// JWT
 	jwtUtil, err := auth.NewJWTUtil(cfg.JWTSecret)

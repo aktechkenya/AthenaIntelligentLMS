@@ -41,6 +41,11 @@ import FloatPage from "./pages/FloatPage";
 import WalletsPage from "./pages/WalletsPage";
 import OverdraftManagementPage from "./pages/OverdraftManagementPage";
 import FloatAnalyticsPage from "./pages/FloatAnalyticsPage";
+import AccountDetailPage from "./pages/AccountDetailPage";
+import AccountOpeningPage from "./pages/AccountOpeningPage";
+import DepositProductsPage from "./pages/DepositProductsPage";
+import FixedDepositsPage from "./pages/FixedDepositsPage";
+import InterestAccrualPage from "./pages/InterestAccrualPage";
 import UsersPage from "./pages/UsersPage";
 import IntegrationsPage from "./pages/IntegrationsPage";
 import NotificationsPage from "./pages/NotificationsPage";
@@ -105,6 +110,11 @@ const AppRoutes = () => (
       <Route path="/reports" element={<P><ReportsPage /></P>} />
       <Route path="/settings" element={<P><SettingsPage /></P>} />
       <Route path="/accounts" element={<P><AccountsPage /></P>} />
+      <Route path="/account/:accountId" element={<P><AccountDetailPage /></P>} />
+      <Route path="/account-opening" element={<P><AccountOpeningPage /></P>} />
+      <Route path="/deposit-products" element={<P><DepositProductsPage /></P>} />
+      <Route path="/fixed-deposits" element={<P><FixedDepositsPage /></P>} />
+      <Route path="/interest-accrual" element={<P><InterestAccrualPage /></P>} />
       <Route path="/transactions" element={<P><TransactionsPage /></P>} />
       <Route path="/ledger" element={<P><LedgerPage /></P>} />
       <Route path="/compliance" element={<P><CompliancePage /></P>} />

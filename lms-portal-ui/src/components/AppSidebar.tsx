@@ -86,10 +86,17 @@ const customersNav = [
   { title: "Business (KYB)", url: "/kyb", icon: Building2 },
 ];
 
+const accountsNav = [
+  { title: "Account Directory", url: "/accounts", icon: Landmark },
+  { title: "Deposit Products", url: "/deposit-products", icon: Package },
+  { title: "Open New Account", url: "/account-opening", icon: FileText },
+  { title: "Fixed Deposits", url: "/fixed-deposits", icon: Lock },
+  { title: "Interest Accrual", url: "/interest-accrual", icon: TrendingUp },
+];
+
 const floatNav = [
-  { title: "AthenaFloat Overview", url: "/float", icon: CreditCard },
-  { title: "Wallet Accounts", url: "/wallets", icon: PiggyBank },
-  { title: "Overdraft Management", url: "/overdraft", icon: CreditCard },
+  { title: "Float Overview", url: "/float", icon: CreditCard },
+  { title: "Overdraft Facilities", url: "/overdraft", icon: CreditCard },
   { title: "Float Analytics", url: "/float-analytics", icon: BarChart3 },
 ];
 
@@ -152,7 +159,8 @@ const navSections = [
   { label: "Lending", items: lendingNav },
   { label: "Products", items: productsNav },
   { label: "Customers", items: customersNav },
-  { label: "Float & Wallet", items: floatNav },
+  { label: "Accounts & Deposits", items: accountsNav },
+  { label: "Float & Overdraft", items: floatNav },
   { label: "Collections", items: collectionsNav },
   { label: "Finance", items: financeNav },
   { label: "Compliance", items: complianceNav },

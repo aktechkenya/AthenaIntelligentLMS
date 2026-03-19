@@ -45,7 +45,13 @@ func scanAccount(row pgx.Row) (*model.Account, error) {
 		&a.ID, &a.TenantID, &a.AccountNumber, &a.CustomerID,
 		&a.AccountType, &a.Status, &a.Currency, &a.KycTier,
 		&a.DailyTransactionLimit, &a.MonthlyTransactionLimit,
-		&a.AccountName, &a.CreatedAt, &a.UpdatedAt,
+		&a.AccountName,
+		&a.DepositProductID, &a.BranchID, &a.OpenedBy,
+		&a.ClosedAt, &a.ClosureReason, &a.LastTransactionDate, &a.DormantSince,
+		&a.MaturityDate, &a.TermDays, &a.LockedAmount, &a.AutoRenew,
+		&a.AccruedInterest, &a.LastInterestAccrualDate, &a.LastInterestPostingDate,
+		&a.InterestRateOverride,
+		&a.CreatedAt, &a.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -56,7 +62,13 @@ func scanAccount(row pgx.Row) (*model.Account, error) {
 const accountCols = `id, tenant_id, account_number, customer_id,
 	account_type, status, currency, kyc_tier,
 	daily_transaction_limit, monthly_transaction_limit,
-	account_name, created_at, updated_at`
+	account_name,
+	deposit_product_id, branch_id, opened_by,
+	closed_at, closure_reason, last_transaction_date, dormant_since,
+	maturity_date, term_days, locked_amount, auto_renew,
+	accrued_interest, last_interest_accrual_date, last_interest_posting_date,
+	interest_rate_override,
+	created_at, updated_at`
 
 // CreateAccount inserts a new account.
 func (r *Repository) CreateAccount(ctx context.Context, tx pgx.Tx, a *model.Account) error {
@@ -68,12 +80,24 @@ func (r *Repository) CreateAccount(ctx context.Context, tx pgx.Tx, a *model.Acco
 		`INSERT INTO accounts (id, tenant_id, account_number, customer_id,
 			account_type, status, currency, kyc_tier,
 			daily_transaction_limit, monthly_transaction_limit,
-			account_name, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+			account_name,
+			deposit_product_id, branch_id, opened_by,
+			closed_at, closure_reason, last_transaction_date, dormant_since,
+			maturity_date, term_days, locked_amount, auto_renew,
+			accrued_interest, last_interest_accrual_date, last_interest_posting_date,
+			interest_rate_override,
+			created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)`,
 		a.ID, a.TenantID, a.AccountNumber, a.CustomerID,
 		a.AccountType, a.Status, a.Currency, a.KycTier,
 		a.DailyTransactionLimit, a.MonthlyTransactionLimit,
-		a.AccountName, a.CreatedAt, a.UpdatedAt,
+		a.AccountName,
+		a.DepositProductID, a.BranchID, a.OpenedBy,
+		a.ClosedAt, a.ClosureReason, a.LastTransactionDate, a.DormantSince,
+		a.MaturityDate, a.TermDays, a.LockedAmount, a.AutoRenew,
+		a.AccruedInterest, a.LastInterestAccrualDate, a.LastInterestPostingDate,
+		a.InterestRateOverride,
+		a.CreatedAt, a.UpdatedAt,
 	)
 	return err
 }
@@ -125,7 +149,13 @@ func (r *Repository) ListAccountsByTenant(ctx context.Context, tenantID string, 
 			&a.ID, &a.TenantID, &a.AccountNumber, &a.CustomerID,
 			&a.AccountType, &a.Status, &a.Currency, &a.KycTier,
 			&a.DailyTransactionLimit, &a.MonthlyTransactionLimit,
-			&a.AccountName, &a.CreatedAt, &a.UpdatedAt,
+			&a.AccountName,
+			&a.DepositProductID, &a.BranchID, &a.OpenedBy,
+			&a.ClosedAt, &a.ClosureReason, &a.LastTransactionDate, &a.DormantSince,
+			&a.MaturityDate, &a.TermDays, &a.LockedAmount, &a.AutoRenew,
+			&a.AccruedInterest, &a.LastInterestAccrualDate, &a.LastInterestPostingDate,
+			&a.InterestRateOverride,
+			&a.CreatedAt, &a.UpdatedAt,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -152,7 +182,13 @@ func (r *Repository) GetAccountsByCustomer(ctx context.Context, customerID, tena
 			&a.ID, &a.TenantID, &a.AccountNumber, &a.CustomerID,
 			&a.AccountType, &a.Status, &a.Currency, &a.KycTier,
 			&a.DailyTransactionLimit, &a.MonthlyTransactionLimit,
-			&a.AccountName, &a.CreatedAt, &a.UpdatedAt,
+			&a.AccountName,
+			&a.DepositProductID, &a.BranchID, &a.OpenedBy,
+			&a.ClosedAt, &a.ClosureReason, &a.LastTransactionDate, &a.DormantSince,
+			&a.MaturityDate, &a.TermDays, &a.LockedAmount, &a.AutoRenew,
+			&a.AccruedInterest, &a.LastInterestAccrualDate, &a.LastInterestPostingDate,
+			&a.InterestRateOverride,
+			&a.CreatedAt, &a.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -182,7 +218,13 @@ func (r *Repository) SearchAccounts(ctx context.Context, tenantID, q string) ([]
 			&a.ID, &a.TenantID, &a.AccountNumber, &a.CustomerID,
 			&a.AccountType, &a.Status, &a.Currency, &a.KycTier,
 			&a.DailyTransactionLimit, &a.MonthlyTransactionLimit,
-			&a.AccountName, &a.CreatedAt, &a.UpdatedAt,
+			&a.AccountName,
+			&a.DepositProductID, &a.BranchID, &a.OpenedBy,
+			&a.ClosedAt, &a.ClosureReason, &a.LastTransactionDate, &a.DormantSince,
+			&a.MaturityDate, &a.TermDays, &a.LockedAmount, &a.AutoRenew,
+			&a.AccruedInterest, &a.LastInterestAccrualDate, &a.LastInterestPostingDate,
+			&a.InterestRateOverride,
+			&a.CreatedAt, &a.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
