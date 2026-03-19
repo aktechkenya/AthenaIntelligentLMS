@@ -66,6 +66,12 @@ export interface OverdraftSummary {
 const BASE = "/proxy/overdraft/api/v1";
 
 export const overdraftService = {
+  async getWalletByCustomer(customerId: string): Promise<CustomerWallet> {
+    const result = await apiGet<CustomerWallet>(`${BASE}/wallets/customer/${encodeURIComponent(customerId)}`);
+    if (result.error || !result.data) throw new Error(result.error ?? "Failed to get customer wallet");
+    return result.data;
+  },
+
   async listWallets(): Promise<CustomerWallet[]> {
     const result = await apiGet<CustomerWallet[]>(`${BASE}/wallets`);
     if (result.error || !result.data) throw new Error(result.error ?? "Failed to list wallets");

@@ -20,12 +20,14 @@ export interface CreateAccountRequest {
 }
 
 export interface BalanceResponse {
+  id?: string;
   accountId: string;
-  accountNumber: string;
-  currency: string;
-  balance: number;
+  accountNumber?: string;
+  currency?: string;
+  currentBalance: number;
   availableBalance: number;
-  asOf: string;
+  ledgerBalance?: number;
+  updatedAt?: string;
 }
 
 export interface Transaction {

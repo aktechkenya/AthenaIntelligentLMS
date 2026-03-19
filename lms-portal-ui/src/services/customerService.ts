@@ -82,7 +82,7 @@ export const customerService = {
   },
 
   async updateStatus(id: string, status: string): Promise<Customer> {
-    const result = await apiPatch<Customer>(`${BASE}/${id}/status?status=${status}`);
+    const result = await apiPatch<Customer>(`${BASE}/${id}/status`, { status });
     if (result.error || !result.data) {
       throw new Error(result.error ?? "Failed to update customer status");
     }

@@ -22,9 +22,11 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Plus, Search, Download, User } from "lucide-react";
+import { Plus, Search, Download, User, ChevronLeft, ChevronRight } from "lucide-react";
 import { customerService, type CreateCustomerRequest } from "@/services/customerService";
 import { useToast } from "@/hooks/use-toast";
+
+const PAGE_SIZE = 20;
 
 const statusColors: Record<string, string> = {
   ACTIVE: "bg-success/15 text-success border-success/30",
@@ -44,6 +46,8 @@ const BorrowersPage = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
+  const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState<CreateCustomerRequest>({
     customerId: "",
@@ -55,8 +59,8 @@ const BorrowersPage = () => {
   });
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["customers", 0, 50],
-    queryFn: () => customerService.listCustomers(0, 50),
+    queryKey: ["customers", page, PAGE_SIZE],
+    queryFn: () => customerService.listCustomers(page, PAGE_SIZE),
   });
 
   const searchQuery = useQuery({
@@ -78,25 +82,62 @@ const BorrowersPage = () => {
     },
   });
 
-  const customers = search.length >= 2 ? (searchQuery.data ?? []) : (data?.content ?? []);
-  const loading = search.length >= 2 ? searchQuery.isLoading : isLoading;
-  const error = search.length >= 2 ? searchQuery.isError : isError;
+  const isSearching = search.length >= 2;
+  const rawCustomers = isSearching ? (searchQuery.data ?? []) : (data?.content ?? []);
+  const customers = statusFilter === "ALL"
+    ? rawCustomers
+    : rawCustomers.filter((c) => c.status === statusFilter);
+  const loading = isSearching ? searchQuery.isLoading : isLoading;
+  const error = isSearching ? searchQuery.isError : isError;
+  const totalPages = data?.totalPages ?? 1;
+  const totalElements = data?.totalElements ?? 0;
+
+  const handleExport = () => {
+    const rows = [
+      ["Customer ID", "First Name", "Last Name", "Phone", "Email", "Type", "KYC Status", "Status", "Created"],
+      ...customers.map((c) => [
+        c.customerId, c.firstName, c.lastName, c.phone ?? "", c.email ?? "",
+        c.customerType, c.kycStatus ?? "", c.status, c.createdAt ?? "",
+      ]),
+    ];
+    const csv = rows.map((r) => r.map((v) => `"${v}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `customers_export_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <DashboardLayout title="Customers" subtitle="Client directory & KYC management">
       <div className="space-y-4 animate-fade-in">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              placeholder="Search customers..."
-              className="pl-8 h-9 text-xs"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+          <div className="flex items-center gap-2">
+            <div className="relative w-64">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                placeholder="Search customers..."
+                className="pl-8 h-9 text-xs"
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+              />
+            </div>
+            <select
+              className="h-9 rounded-md border text-xs px-2"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="ALL">All Statuses</option>
+              <option value="ACTIVE">Active</option>
+              <option value="INACTIVE">Inactive</option>
+              <option value="SUSPENDED">Suspended</option>
+              <option value="BLOCKED">Blocked</option>
+            </select>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="text-xs">
+            <Button variant="outline" size="sm" className="text-xs" onClick={handleExport}>
               <Download className="mr-1.5 h-3.5 w-3.5" /> Export
             </Button>
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -233,6 +274,31 @@ const BorrowersPage = () => {
             )}
           </CardContent>
         </Card>
+
+        {/* Pagination */}
+        {!isSearching && !loading && !error && (
+          <div className="flex items-center justify-between px-1">
+            <p className="text-xs text-muted-foreground">
+              {totalElements} customer{totalElements !== 1 ? "s" : ""} total
+              {statusFilter !== "ALL" && ` (filtered: ${customers.length})`}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" className="text-xs h-7 w-7 p-0"
+                disabled={page === 0}
+                onClick={() => setPage((p) => Math.max(0, p - 1))}>
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                Page {page + 1} of {Math.max(1, totalPages)}
+              </span>
+              <Button variant="outline" size="sm" className="text-xs h-7 w-7 p-0"
+                disabled={page + 1 >= totalPages}
+                onClick={() => setPage((p) => p + 1)}>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </DashboardLayout>
   );
